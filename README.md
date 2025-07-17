@@ -1,6 +1,7 @@
 predictive_maintenance
 ==============================
-Project Overview
+Project Overview:
+
 This project focuses on developing a predictive maintenance solution for jet engines using the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset. The primary objective is to build machine learning models that accurately estimate the Remaining Useful Life (RUL) of engines based on sensor data collected over their operational cycles.
 
 Key aims include:
