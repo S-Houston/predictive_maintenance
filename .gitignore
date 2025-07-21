@@ -76,7 +76,7 @@ target/
 .ipynb_checkpoints/
 
 # Ignore all contents of data folder
-data/*
+/data/*
 
 # But do not ignore these folder placeholders
 !data/.gitkeep
