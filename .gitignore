@@ -75,8 +75,12 @@ target/
 # Jupyter NB Checkpoints
 .ipynb_checkpoints/
 
-# exclude data from source control by default
-/data/
+# Ignore all contents of data folder
+data/*
+
+# But do not ignore these folder placeholders
+!data/.gitkeep
+!data/**/.gitkeep
 
 # Mac OS-specific storage files
 .DS_Store
