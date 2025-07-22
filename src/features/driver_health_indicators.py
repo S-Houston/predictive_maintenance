@@ -16,6 +16,9 @@ def main():
     # Load the cleaned data
     df = pd.read_csv(input_csv)
     
+    # Rename 'time' to 'time_in_cycles' to match the expected column in feature engineering
+    df.rename(columns={"time": "time_in_cycles"}, inplace=True)
+    
     # List your sensor columns to process (match columns in your CSV)
     sensor_cols = [
         'sensor_2', 'sensor_3', 'sensor_4', 'sensor_6', 'sensor_7', 'sensor_8',
