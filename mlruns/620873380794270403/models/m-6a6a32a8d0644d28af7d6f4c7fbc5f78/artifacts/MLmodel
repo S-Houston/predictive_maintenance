@@ -1,0 +1,105 @@
+artifact_path: file:///C:/Users/Stuart/predictive_maintenance/mlruns/620873380794270403/models/m-6a6a32a8d0644d28af7d6f4c7fbc5f78/artifacts
+flavors:
+  python_function:
+    data: model.xgb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.xgboost
+    python_version: 3.11.11
+  xgboost:
+    code: null
+    data: model.xgb
+    model_class: xgboost.sklearn.XGBRegressor
+    model_format: xgb
+    xgb_version: 3.0.2
+is_signature_from_type_hint: false
+mlflow_version: 3.1.1
+model_id: m-6a6a32a8d0644d28af7d6f4c7fbc5f78
+model_size_bytes: 296472
+model_uuid: m-6a6a32a8d0644d28af7d6f4c7fbc5f78
+prompts: null
+run_id: 838637dc9d214292a5e078aeade494f9
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "sensor_2", "required": true}, {"type": "double",
+    "name": "sensor_3", "required": true}, {"type": "double", "name": "sensor_4",
+    "required": true}, {"type": "double", "name": "sensor_6", "required": true}, {"type":
+    "double", "name": "sensor_7", "required": true}, {"type": "double", "name": "sensor_8",
+    "required": true}, {"type": "double", "name": "sensor_9", "required": true}, {"type":
+    "double", "name": "sensor_11", "required": true}, {"type": "double", "name": "sensor_12",
+    "required": true}, {"type": "double", "name": "sensor_13", "required": true},
+    {"type": "double", "name": "sensor_14", "required": true}, {"type": "double",
+    "name": "sensor_15", "required": true}, {"type": "double", "name": "sensor_17",
+    "required": true}, {"type": "double", "name": "sensor_20", "required": true},
+    {"type": "double", "name": "sensor_21", "required": true}, {"type": "double",
+    "name": "sensor_2_baseline", "required": true}, {"type": "double", "name": "sensor_3_baseline",
+    "required": true}, {"type": "double", "name": "sensor_4_baseline", "required":
+    true}, {"type": "double", "name": "sensor_6_baseline", "required": true}, {"type":
+    "double", "name": "sensor_7_baseline", "required": true}, {"type": "double", "name":
+    "sensor_8_baseline", "required": true}, {"type": "double", "name": "sensor_9_baseline",
+    "required": true}, {"type": "double", "name": "sensor_11_baseline", "required":
+    true}, {"type": "double", "name": "sensor_12_baseline", "required": true}, {"type":
+    "double", "name": "sensor_13_baseline", "required": true}, {"type": "double",
+    "name": "sensor_14_baseline", "required": true}, {"type": "double", "name": "sensor_15_baseline",
+    "required": true}, {"type": "double", "name": "sensor_17_baseline", "required":
+    true}, {"type": "double", "name": "sensor_20_baseline", "required": true}, {"type":
+    "double", "name": "sensor_21_baseline", "required": true}, {"type": "double",
+    "name": "sensor_2_degraded", "required": true}, {"type": "double", "name": "sensor_3_degraded",
+    "required": true}, {"type": "double", "name": "sensor_4_degraded", "required":
+    true}, {"type": "double", "name": "sensor_6_degraded", "required": true}, {"type":
+    "double", "name": "sensor_7_degraded", "required": true}, {"type": "double", "name":
+    "sensor_8_degraded", "required": true}, {"type": "double", "name": "sensor_9_degraded",
+    "required": true}, {"type": "double", "name": "sensor_11_degraded", "required":
+    true}, {"type": "double", "name": "sensor_12_degraded", "required": true}, {"type":
+    "double", "name": "sensor_13_degraded", "required": true}, {"type": "double",
+    "name": "sensor_14_degraded", "required": true}, {"type": "double", "name": "sensor_15_degraded",
+    "required": true}, {"type": "double", "name": "sensor_17_degraded", "required":
+    true}, {"type": "double", "name": "sensor_20_degraded", "required": true}, {"type":
+    "double", "name": "sensor_21_degraded", "required": true}, {"type": "double",
+    "name": "sensor_2_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_2_rolling_std", "required": false}, {"type": "double", "name": "sensor_2_slope",
+    "required": false}, {"type": "double", "name": "sensor_3_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_3_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_3_slope", "required": false}, {"type": "double",
+    "name": "sensor_4_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_4_rolling_std", "required": false}, {"type": "double", "name": "sensor_4_slope",
+    "required": false}, {"type": "double", "name": "sensor_6_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_6_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_6_slope", "required": false}, {"type": "double",
+    "name": "sensor_7_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_7_rolling_std", "required": false}, {"type": "double", "name": "sensor_7_slope",
+    "required": false}, {"type": "double", "name": "sensor_8_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_8_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_8_slope", "required": false}, {"type": "double",
+    "name": "sensor_9_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_9_rolling_std", "required": false}, {"type": "double", "name": "sensor_9_slope",
+    "required": false}, {"type": "double", "name": "sensor_11_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_11_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_11_slope", "required": false}, {"type": "double",
+    "name": "sensor_12_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_12_rolling_std", "required": false}, {"type": "double", "name": "sensor_12_slope",
+    "required": false}, {"type": "double", "name": "sensor_13_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_13_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_13_slope", "required": false}, {"type": "double",
+    "name": "sensor_14_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_14_rolling_std", "required": false}, {"type": "double", "name": "sensor_14_slope",
+    "required": false}, {"type": "double", "name": "sensor_15_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_15_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_15_slope", "required": false}, {"type": "double",
+    "name": "sensor_17_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_17_rolling_std", "required": false}, {"type": "double", "name": "sensor_17_slope",
+    "required": false}, {"type": "double", "name": "sensor_20_rolling_mean", "required":
+    true}, {"type": "double", "name": "sensor_20_rolling_std", "required": false},
+    {"type": "double", "name": "sensor_20_slope", "required": false}, {"type": "double",
+    "name": "sensor_21_rolling_mean", "required": true}, {"type": "double", "name":
+    "sensor_21_rolling_std", "required": false}, {"type": "double", "name": "sensor_21_slope",
+    "required": false}, {"type": "double", "name": "health_score", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "float32", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2025-07-22 13:23:23.212565'

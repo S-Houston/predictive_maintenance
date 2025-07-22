@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/Stuart/predictive_maintenance/mlruns/620873380794270403/82d589a4d0e5460b9f94a8eedee5487d/artifacts
+end_time: 1753189282691
+entry_point_name: ''
+experiment_id: '620873380794270403'
+lifecycle_stage: active
+run_id: 82d589a4d0e5460b9f94a8eedee5487d
+run_name: nosy-crane-879
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753189245436
+status: 4
+tags: []
+user_id: Stuart

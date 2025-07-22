@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/Stuart/predictive_maintenance/mlruns/620873380794270403/models/m-48240e0b80ed4121a322319baf3c3ac6/artifacts
+creation_timestamp: 1753190673827
+experiment_id: '620873380794270403'
+last_updated_timestamp: 1753190677698
+model_id: m-48240e0b80ed4121a322319baf3c3ac6
+model_type: null
+name: lightgbm_model
+source_run_id: b25e41c628be4d4185560bc5969c21e8
+status: 2
+status_message: null

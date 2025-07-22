@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/Stuart/predictive_maintenance/mlruns/620873380794270403/838637dc9d214292a5e078aeade494f9/artifacts
+end_time: 1753190606743
+entry_point_name: ''
+experiment_id: '620873380794270403'
+lifecycle_stage: active
+run_id: 838637dc9d214292a5e078aeade494f9
+run_name: stylish-shrew-634
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753190602539
+status: 3
+tags: []
+user_id: Stuart
