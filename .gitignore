@@ -92,17 +92,14 @@ data/*
 # Mypy cache
 .mypy_cache/
 
-# Ignore model artifacts and MLflow tracking runs
-models/
+# MLflow experiment runs and models
 mlruns/
 
-# Ignore common model file types
+# Local model artifacts
+models/
 *.pkl
 *.joblib
 *.bin
 *.model
 *.json
 
-# Optional: if you have other local output folders
-output/
-results/
