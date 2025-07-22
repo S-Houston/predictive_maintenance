@@ -1,5 +1,6 @@
 # This script trains a LightGBM model for predicting Remaining Useful Life (RUL) using feature-engineered data.
 
+# Import necessary librariesS
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -8,88 +9,94 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, m
 import mlflow
 import mlflow.lightgbm
 from pathlib import Path
-import mlflow.models
+from mlflow.models import infer_signature
+import random
 
 def root_mean_squared_error(y_true, y_pred):
     return np.sqrt(mean_squared_error(y_true, y_pred))
 
-def main():
-    # Set MLflow experiment
-    experiment_name = "FD001 RUL Prediction"
-    mlflow.set_experiment(experiment_name)
-
-    # Load dataset
-    data_path = Path("data/features/train_FD001_features.csv")
-    df = pd.read_csv(data_path)
-
-    # Define features and target
-    feature_cols = [col for col in df.columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
-    target_col = "RUL"
-    X = df[feature_cols]
-    y = df[target_col]
-
-    # Cast all features to float64 to avoid MLflow integer missing value warnings
-    X = X.astype(np.float64)
-
-    # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # LightGBM hyperparameters
-    params = {
-        "objective": "regression",
-        "metric": "rmse",
-        "boosting_type": "gbdt",
-        "num_leaves": 31,
-        "learning_rate": 0.05,
-        "n_estimators": 100,
-        "random_state": 42
-    }
-
-    # Initialize model
-    model = lgb.LGBMRegressor(**params)
-
-    # Start MLflow tracking
+def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
     with mlflow.start_run():
+        mlflow.log_params(params)
+        mlflow.set_tag("model_type", "lightgbm")
+
+        model = lgb.LGBMRegressor(**params)
         model.fit(X_train, y_train)
 
         y_pred = model.predict(X_test)
-
-        # Evaluation metrics
         mae = mean_absolute_error(y_test, y_pred)
         rmse = root_mean_squared_error(y_test, y_pred)
         r2 = r2_score(y_test, y_pred)
         max_err = max_error(y_test, y_pred)
 
-        # Log hyperparameters
-        for param_name, param_value in params.items():
-            mlflow.log_param(param_name, param_value)
-
-        # Log metrics
         mlflow.log_metric("MAE", mae)
         mlflow.log_metric("RMSE", rmse)
         mlflow.log_metric("R2", r2)
         mlflow.log_metric("Max Error", max_err)
 
-        # Log feature importances
         importances = pd.DataFrame({
             "feature": feature_cols,
             "importance": model.feature_importances_
         }).sort_values(by="importance", ascending=False)
 
-        importances_path = Path("feature_importances_lightgbm.csv")
+        importances_path = Path("feature_importances_lightgbm_tuning.csv")
         importances.to_csv(importances_path, index=False)
         mlflow.log_artifact(str(importances_path))
 
-        # Log the model (using name= instead of deprecated artifact_path=)
+        X_test_float = X_test.astype(np.float64)
         mlflow.lightgbm.log_model(
             lgb_model=model,
             name="lightgbm_model",
-            input_example=X_test.iloc[:5],
-            signature=mlflow.models.infer_signature(X_test, y_pred)
+            input_example=X_test_float.iloc[:5],
+            signature=infer_signature(X_test_float, y_pred)
         )
 
-        print(f"Model trained and logged under experiment '{experiment_name}'.")
-        print(f"Metrics: MAE={mae:.2f}, RMSE={rmse:.2f}, R2={r2:.2f}, Max Error={max_err:.2f}")
+        print(f"Run params: {params}")
+        print(f"Metrics: MAE={mae:.3f}, RMSE={rmse:.3f}, R2={r2:.3f}, Max Error={max_err:.3f}")
+
+        return mae
+
+def main():
+    mlflow.set_tracking_uri("file:///C:/Users/Stuart/mlflow_tracking")
+    experiment_name = "FD001 RUL LightGBM Hyperparam Tuning"
+    mlflow.set_experiment(experiment_name)
+    print(f"Using MLflow experiment: '{experiment_name}'")
+    print(f"Tracking URI: {mlflow.get_tracking_uri()}")
+
+    data_path = Path("data/features/train_FD001_features.csv")
+    df = pd.read_csv(data_path)
+
+    feature_cols = [col for col in df.columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
+    target_col = "RUL"
+    X = df[feature_cols].astype(np.float64)
+    y = df[target_col]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    param_grid = {
+        "objective": ["regression"],
+        "metric": ["rmse"],
+        "boosting_type": ["gbdt"],
+        "num_leaves": [15, 31, 50],
+        "learning_rate": [0.01, 0.05, 0.1],
+        "n_estimators": [50, 100, 150],
+        "random_state": [42]
+    }
+
+    n_iterations = 10
+    best_mae = float("inf")
+    best_params = None
+
+    for _ in range(n_iterations):
+        params = {k: random.choice(v) for k, v in param_grid.items()}
+        mae = train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols)
+
+        if mae < best_mae:
+            best_mae = mae
+            best_params = params
+
+    print(f"\nBest MAE: {best_mae:.3f}")
+    print(f"Best Parameters: {best_params}")
 
 if __name__ == "__main__":
     main()
