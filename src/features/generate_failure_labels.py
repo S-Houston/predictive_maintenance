@@ -28,9 +28,3 @@ def generate_failure_labels(input_path, output_path, failure_threshold=30):
     Path(output_path).parent.mkdir(parents=True, exist_ok=True) # Ensure the output directory exists
     df.to_csv(output_path, index=False)
     print(f"Failure labels generated and saved to {output_path}")
-    
-# Example usage
-if __name__ == "__main__":
-    input_file = 'data/cleaned/train_FD001_cleaned.csv' 
-    output_file = 'data/cleaned/train_FD001_labeled.csv'  
-    generate_failure_labels(input_file, output_file, failure_threshold=30)
