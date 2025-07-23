@@ -1,6 +1,5 @@
 # This script trains a LightGBM model for predicting Remaining Useful Life (RUL) using feature-engineered data.
 
-# Import necessary librariesS
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -10,6 +9,7 @@ import mlflow
 import mlflow.lightgbm
 from pathlib import Path
 from mlflow.models import infer_signature
+import json
 import random
 
 def root_mean_squared_error(y_true, y_pred):
@@ -34,6 +34,7 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
         mlflow.log_metric("R2", r2)
         mlflow.log_metric("Max Error", max_err)
 
+        # Save feature importances
         importances = pd.DataFrame({
             "feature": feature_cols,
             "importance": model.feature_importances_
@@ -43,6 +44,13 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
         importances.to_csv(importances_path, index=False)
         mlflow.log_artifact(str(importances_path))
 
+        # ✅ Save feature columns used in training
+        feature_list_path = Path("lightgbm_feature_columns.json")
+        with open(feature_list_path, "w") as f:
+            json.dump(feature_cols, f)
+        mlflow.log_artifact(str(feature_list_path))
+
+        # Log the model to MLflow
         X_test_float = X_test.astype(np.float64)
         mlflow.lightgbm.log_model(
             lgb_model=model,
@@ -66,6 +74,7 @@ def main():
     data_path = Path("data/features/train_FD001_features.csv")
     df = pd.read_csv(data_path)
 
+    # Dynamically select relevant features
     feature_cols = [col for col in df.columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
     target_col = "RUL"
     X = df[feature_cols].astype(np.float64)
@@ -73,6 +82,7 @@ def main():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+    # Random hyperparameter search
     param_grid = {
         "objective": ["regression"],
         "metric": ["rmse"],

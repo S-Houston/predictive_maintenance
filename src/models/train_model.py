@@ -11,17 +11,22 @@ import mlflow.sklearn
 from pathlib import Path
 import random
 import os
+import json
 
 def root_mean_squared_error(y_true, y_pred):
     return np.sqrt(mean_squared_error(y_true, y_pred))
 
+import json
+
+# Utility function to save feature column names
+def save_feature_columns(feature_cols, filepath):
+    with open(filepath, "w") as f:
+        json.dump(feature_cols, f)
+
 def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
-    # Start a new MLflow run
     with mlflow.start_run():
-        # Log the hyperparameters
         mlflow.log_params(params)
 
-        # Initialize and train the model
         model = RandomForestRegressor(
             n_estimators=params["n_estimators"],
             max_depth=params["max_depth"],
@@ -32,20 +37,18 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
         )
         model.fit(X_train, y_train)
 
-        # Predict and evaluate
         y_pred = model.predict(X_test)
         mae = mean_absolute_error(y_test, y_pred)
         rmse = root_mean_squared_error(y_test, y_pred)
         r2 = r2_score(y_test, y_pred)
         max_err = max_error(y_test, y_pred)
 
-        # Log metrics
         mlflow.log_metric("MAE", mae)
         mlflow.log_metric("RMSE", rmse)
         mlflow.log_metric("R2", r2)
         mlflow.log_metric("Max Error", max_err)
 
-        # Log feature importances
+        # Save and log feature importances
         importances = pd.DataFrame({
             "feature": feature_cols,
             "importance": model.feature_importances_
@@ -54,6 +57,11 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
         importances_path = Path("feature_importances_rf_tuning.csv")
         importances.to_csv(importances_path, index=False)
         mlflow.log_artifact(str(importances_path))
+
+        # Save and log feature column names
+        feature_path = Path("feature_columns.json")
+        save_feature_columns(feature_cols, feature_path)
+        mlflow.log_artifact(str(feature_path))
 
         # Log the model
         mlflow.sklearn.log_model(
@@ -65,7 +73,6 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
 
         print(f"Run params: {params}")
         print(f"Metrics: MAE={mae:.3f}, RMSE={rmse:.3f}, R2={r2:.3f}, Max Error={max_err:.3f}")
-
         return mae
 
 def main():

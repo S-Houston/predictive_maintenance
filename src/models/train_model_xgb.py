@@ -20,6 +20,10 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
         mlflow.log_params(params)
         mlflow.set_tag("model_type", "xgboost")
 
+        # Ensure correct feature columns
+        X_train = X_train[feature_cols]
+        X_test = X_test[feature_cols]
+
         model = XGBRegressor(**params, verbosity=0)
         model.fit(X_train, y_train)
 
