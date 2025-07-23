@@ -209,6 +209,7 @@ with tabs[2]:
 # --- RUL Predictions Tab ---
 with tabs[3]:
     st.header("⏳ Remaining Useful Life (RUL) Predictions")
+
     if rul_df is not None:
         st.subheader("Predicted RUL and Risk Levels by Unit")
 
@@ -216,24 +217,82 @@ with tabs[3]:
         rul_display_df = rul_df.copy()
         rul_display_df["Alert"] = rul_display_df["risk_level"].map(alert_emojis)
         display_cols = ["unit", "RUL", "Alert"]
-        st.dataframe(rul_display_df[display_cols].sort_values("RUL").reset_index(drop=True), use_container_width=True)
+        st.dataframe(
+            rul_display_df[display_cols].sort_values("RUL").reset_index(drop=True),
+            use_container_width=True
+        )
 
         if true_rul_df is not None:
-            st.subheader("Model Performance: Predicted vs True RUL")
-            merged = pd.merge(rul_df, true_rul_df, on="unit", suffixes=("_pred", "_true"))
-            fig_scatter = px.scatter(
-                merged,
-                x="RUL_true",
-                y="RUL_pred",
-                labels={"RUL_true": "True RUL (cycles)", "RUL_pred": "Predicted RUL (cycles)"},
-                title="Predicted vs True Remaining Useful Life",
-                trendline="ols",
+            st.subheader("📊 Per Unit Comparison")
+
+            # Merge predictions and true RULs
+            merged = pd.merge(
+                rul_df.rename(columns={"RUL": "RUL_pred"}),
+                true_rul_df.rename(columns={"RUL": "RUL_true"}),
+                on="unit"
             )
-            st.plotly_chart(fig_scatter, use_container_width=True)
-
             merged["error"] = (merged["RUL_true"] - merged["RUL_pred"]).abs()
-            mean_error = merged["error"].mean()
-            st.write(f"Mean Absolute Error on test units: {mean_error:.2f} cycles")
 
+            # Defensive: check merged is not empty
+            if merged.empty:
+                st.warning("No overlapping units found between predictions and true RUL data.")
+            else:
+                # Units list for dropdown
+                unit_list = sorted(merged["unit"].unique())
+
+                # Defensive: If no units, warn and skip UI
+                if len(unit_list) == 0:
+                    st.warning("No units available for per-unit comparison.")
+                else:
+                    with st.expander("ℹ️ How to interpret the chart and metrics"):
+                        st.markdown("""
+                        Each unit represents a single engine at the start of its test. You’ll see:
+
+                        - **🔧 True RUL**: Actual cycles before failure.
+                        - **📡 Predicted RUL**: Model’s estimate at prediction time.
+                        - **⚠️ Absolute Error**: The difference between prediction and reality.
+
+                        ### Example:
+                        - If **True RUL** = 268 and **Predicted RUL** = 193.5 →  
+                          The model flagged the unit **~75 cycles early**.
+
+                        🔄 Underestimate = early (safe, costly)  
+                        ⏳ Overestimate = risk of unplanned failure
+
+                        Use this view to assess model reliability per unit.
+                        """)
+
+                    # Dropdown for unit selection
+                    selected_unit = st.selectbox("Select a Unit", unit_list)
+
+                    # Defensive: check if selected_unit is in merged data
+                    filtered_rows = merged[merged["unit"] == selected_unit]
+                    if filtered_rows.empty:
+                        st.error(f"No data found for unit {selected_unit}. Please select another unit.")
+                    else:
+                        row = filtered_rows.iloc[0]
+
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("🔧 True RUL", f"{row['RUL_true']} cycles")
+                        col2.metric("📡 Predicted RUL", f"{row['RUL_pred']:.2f} cycles")
+                        col3.metric("⚠️ Absolute Error", f"{row['error']:.2f} cycles")
+
+                        if row['RUL_pred'] < HIGH_RISK_THRESHOLD:
+                            st.warning("⚠️ Predicted RUL is very low. This unit may be approaching failure.")
+
+                        # Bar chart
+                        fig_bar = go.Figure()
+                        fig_bar.add_trace(go.Bar(
+                            x=["True RUL", "Predicted RUL"],
+                            y=[row["RUL_true"], row["RUL_pred"]],
+                            marker_color=["green", "blue"]
+                        ))
+                        fig_bar.update_layout(
+                            title=f"RUL Comparison for Unit {selected_unit}",
+                            yaxis_title="RUL (cycles)"
+                        )
+                        st.plotly_chart(fig_bar, use_container_width=True)
+
+                        st.info("This view lets engineers compare model predictions against actual outcomes on a per-unit basis.")
     else:
         st.warning("No RUL predictions found.")
