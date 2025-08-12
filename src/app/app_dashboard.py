@@ -10,7 +10,7 @@ from pathlib import Path
 
 # --- Load Data Functions ---
 
-@st.cache_data
+@st.cache_data # Cache data loading to improve performance
 def load_features():
     path = "data/features/train_FD001_features.csv"
     df = pd.read_csv(path)
@@ -22,7 +22,7 @@ def load_features():
     df.dropna(subset=["unit", "time_in_cycles"], inplace=True)
     return df
 
-@st.cache_data
+@st.cache_data # Cache RUL predictions loading
 def load_rul_predictions():
     path = "data/processed/rul_predictions.csv"
     try:
@@ -34,7 +34,7 @@ def load_rul_predictions():
     except FileNotFoundError:
         return None
 
-@st.cache_data
+@st.cache_data # Cache true RUL labels loading
 def load_true_rul_labels():
     # Check labelled RUL files only in cleaned folder based on your folder structure
     possible_paths = [
@@ -130,7 +130,7 @@ with tabs[0]:
               - High Risk: RUL < 30 cycles  
               - Medium Risk: RUL ≥ 30 and < 100 cycles  
               - Low Risk: RUL ≥ 100 cycles  
-            - Units flagged as **High Risk** should be prioritized for inspection or maintenance.
+            - Units flagged as **High Risk** should be prioritised for inspection or maintenance.
             """
         )
     else:
