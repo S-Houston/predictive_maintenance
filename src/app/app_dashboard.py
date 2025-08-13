@@ -1,30 +1,35 @@
 # Engine Health Dashboard
 # This Streamlit app provides an interactive dashboard for predictive maintenance of engines.
+# Version: 2.1 (Re-added risk explanation to summary tab)
 
-# Import necessary libraries
+# --- Import necessary libraries ---
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 
-# --- Load Data Functions ---
+# --- Data Loading Functions ---
 
 @st.cache_data # Cache data loading to improve performance
-def load_features():
-    path = "data/features/train_FD001_features.csv"
-    df = pd.read_csv(path)
-    if "unit" not in df.columns or "time_in_cycles" not in df.columns:
-        st.error(f"⚠️ Sensor data missing 'unit' or 'time_in_cycles' columns.\nColumns found: {df.columns.tolist()}")
+def load_features(path):
+    """Loads sensor feature data from a CSV file."""
+    try:
+        df = pd.read_csv(path)
+        if "unit" not in df.columns or "time_in_cycles" not in df.columns:
+            st.error(f"⚠️ Sensor data missing 'unit' or 'time_in_cycles' columns.\nColumns found: {df.columns.tolist()}")
+            return None
+        df["unit"] = pd.to_numeric(df["unit"], errors="coerce").astype("Int64")
+        df["time_in_cycles"] = pd.to_numeric(df["time_in_cycles"], errors="coerce").astype("Int64")
+        df.dropna(subset=["unit", "time_in_cycles"], inplace=True)
+        return df
+    except FileNotFoundError:
+        st.error(f"🚨 Critical Error: Main feature file not found at '{path}'.")
         return None
-    df["unit"] = pd.to_numeric(df["unit"], errors="coerce").astype("Int64")
-    df["time_in_cycles"] = pd.to_numeric(df["time_in_cycles"], errors="coerce").astype("Int64")
-    df.dropna(subset=["unit", "time_in_cycles"], inplace=True)
-    return df
 
 @st.cache_data # Cache RUL predictions loading
-def load_rul_predictions():
-    path = "data/processed/rul_predictions.csv"
+def load_rul_predictions(path):
+    """Loads RUL predictions from a CSV file."""
     try:
         rul_df = pd.read_csv(path)
         if not {"unit", "RUL"}.issubset(rul_df.columns):
@@ -32,267 +37,283 @@ def load_rul_predictions():
             return None
         return rul_df
     except FileNotFoundError:
+        st.info("RUL prediction file not found. Some features will be disabled.")
         return None
 
 @st.cache_data # Cache true RUL labels loading
-def load_true_rul_labels():
-    # Check labelled RUL files only in cleaned folder based on your folder structure
-    possible_paths = [
-        "data/cleaned/train_FD001_labeled.csv",
-        "data/cleaned/test_FD001_labeled.csv",
-    ]
+def load_true_rul_labels(possible_paths):
+    """Loads true RUL labels by checking a list of possible paths."""
     for p in possible_paths:
         path = Path(p)
         if path.exists():
             df = pd.read_csv(path)
             if {"unit", "RUL"}.issubset(df.columns):
                 return df[["unit", "RUL"]].drop_duplicates()
+    st.info("True RUL labels not found. Model performance comparison will not be available.")
     return None
 
-df = load_features()
-rul_df = load_rul_predictions()
-true_rul_df = load_true_rul_labels()
+# --- Helper Functions ---
 
-failure_threshold = 30  # cycles before max_cycle for failure zone
-
-if df is not None:
-    df["max_cycle"] = df.groupby("unit")["time_in_cycles"].transform("max")
-    df["failure_zone"] = df["time_in_cycles"] >= (df["max_cycle"] - failure_threshold)
-
-HIGH_RISK_THRESHOLD = 30
-MEDIUM_RISK_THRESHOLD = 100
-
-def classify_risk(rul):
-    if rul < HIGH_RISK_THRESHOLD:
+def classify_risk(rul, high_threshold, medium_threshold):
+    """Classifies RUL into 'High', 'Medium', or 'Low' risk categories."""
+    if rul < high_threshold:
         return "High"
-    elif rul >= HIGH_RISK_THRESHOLD and rul < MEDIUM_RISK_THRESHOLD:
+    elif rul < medium_threshold:
         return "Medium"
     else:
         return "Low"
 
-if rul_df is not None:
-    rul_df["risk_level"] = rul_df["RUL"].apply(classify_risk)
-
-SENSOR_TOOLTIPS = {
-    "raw": "Raw sensor reading as collected from the engine.",
-    "baseline": "Baseline value representing normal operating condition.",
-    "degraded": "Deviation from baseline indicating sensor degradation.",
-    "rolling_mean": "Rolling average smoothing short-term fluctuations.",
-    "rolling_std": "Rolling standard deviation showing variability over time.",
-    "slope": "Rate of change over a rolling window, indicating trends."
-}
-
-def get_sensor_type(col_name):
-    for key in SENSOR_TOOLTIPS.keys():
+def get_sensor_type(col_name, sensor_tooltips):
+    """Determines the type of a sensor column based on its suffix."""
+    for key in sensor_tooltips.keys():
         if col_name.endswith(key):
             return key
     return "raw"
 
-# --- Streamlit UI ---
+# --- UI Rendering Functions ---
 
-st.set_page_config(page_title="Engine Health Dashboard", layout="wide")
-st.title("🚀 Predictive Maintenance Dashboard")
-
-tabs = st.tabs(["📝 Summary", "📊 Overview", "🔍 Unit Analysis", "⏳ RUL Predictions"])
-
-# --- Summary Tab ---
-with tabs[0]:
+def render_summary_tab(rul_df, risk_color_map, high_risk_threshold, medium_risk_threshold):
+    """Renders the content for the Summary tab."""
     st.header("📝 Summary Overview")
-
-    if rul_df is not None and len(rul_df) > 0:
-        top5_high_risk = rul_df.sort_values("RUL").head(5)
-        st.subheader("Top 5 Units Approaching Failure (Lowest RUL)")
-        cols = st.columns(len(top5_high_risk))
-        risk_color_map = {"High": "red", "Medium": "orange", "Low": "green"}
-        for i, row in enumerate(top5_high_risk.itertuples()):
-            with cols[i]:
-                risk_color = risk_color_map.get(row.risk_level, "black")
-                st.markdown(f"**Unit {int(row.unit)}**")
-                st.markdown(f"<span style='color:{risk_color};font-weight:bold;'>Risk: {row.risk_level}</span>", unsafe_allow_html=True)
-                st.metric(label="Remaining Useful Life", value=f"{row.RUL:.1f} cycles")
-
-        risk_counts = rul_df["risk_level"].value_counts().reindex(["High","Medium","Low"], fill_value=0)
-        st.subheader("Unit Risk Distribution")
-        fig_pie = px.pie(
-            names=risk_counts.index,
-            values=risk_counts.values,
-            color=risk_counts.index,
-            color_discrete_map={"High":"red", "Medium":"orange", "Low":"green"},
-            title="Units by Risk Level"
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-        st.markdown(
-            """
-            **Cycle Explanation:**  
-            - A **cycle** is one complete engine operation cycle.  
-            - **Risk thresholds:**  
-              - High Risk: RUL < 30 cycles  
-              - Medium Risk: RUL ≥ 30 and < 100 cycles  
-              - Low Risk: RUL ≥ 100 cycles  
-            - Units flagged as **High Risk** should be prioritised for inspection or maintenance.
-            """
-        )
-    else:
+    if rul_df is None or rul_df.empty:
         st.warning("No RUL prediction data available to summarize.")
+        return
 
-# --- Overview Tab ---
-with tabs[1]:
-    st.header("📊 Sensor Trends Across Units")
-    if df is not None:
-        sensor_cols = [col for col in df.columns if col.startswith("sensor_")]
-        sensor_display_names = []
-        for col in sensor_cols:
-            stype = get_sensor_type(col)
-            sensor_display_names.append(f"{col} ({stype})")
+    # Top 5 units approaching failure
+    st.subheader("Top 5 Units Approaching Failure (Lowest RUL)")
+    top5_high_risk = rul_df.sort_values("RUL").head(5)
+    cols = st.columns(len(top5_high_risk))
+    for i, row in enumerate(top5_high_risk.itertuples()):
+        with cols[i]:
+            risk_color = risk_color_map.get(row.risk_level, "black")
+            st.markdown(f"**Unit {int(row.unit)}**")
+            st.markdown(f"<span style='color:{risk_color};font-weight:bold;'>Risk: {row.risk_level}</span>", unsafe_allow_html=True)
+            st.metric(label="Remaining Useful Life", value=f"{row.RUL:.1f} cycles")
 
-        display_to_col = dict(zip(sensor_display_names, sensor_cols))
-        selected_display = st.selectbox("Select a sensor", sensor_display_names)
+    # Risk distribution pie chart
+    st.subheader("Unit Risk Distribution")
+    risk_counts = rul_df["risk_level"].value_counts().reindex(["High", "Medium", "Low"], fill_value=0)
+    fig_pie = px.pie(
+        names=risk_counts.index,
+        values=risk_counts.values,
+        color=risk_counts.index,
+        color_discrete_map=risk_color_map,
+        title="Units by Risk Level"
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
+    
+    # Add the explanation in an expander
+    with st.expander("ℹ️ How is risk calculated?"):
+        st.markdown(f"""
+        The risk level for each engine unit is determined by its **Predicted Remaining Useful Life (RUL)**.
+        
+        - A **cycle** represents one complete engine operation (e.g., a flight).
+        - **Risk thresholds** are defined as follows:
+            - **High Risk**: RUL < **{high_risk_threshold} cycles**
+            - **Medium Risk**: RUL is between **{high_risk_threshold}** and **{medium_risk_threshold} cycles**
+            - **Low Risk**: RUL ≥ **{medium_risk_threshold} cycles**
+        
+        Units flagged as **High Risk** should be prioritised for inspection or maintenance.
+        """)
 
-        selected_sensor = display_to_col[selected_display]
+def render_overview_tab(df, sensor_tooltips):
+    """Renders the content for the Sensor Overview tab."""
+    st.header("📊 Sensor Trends Across All Units")
+    sensor_cols = [col for col in df.columns if col.startswith("sensor_")]
+    
+    # Create display names with type hint for the selectbox
+    sensor_display_names = [f"{col} ({get_sensor_type(col, sensor_tooltips)})" for col in sensor_cols]
+    display_to_col = dict(zip(sensor_display_names, sensor_cols))
+    
+    selected_display = st.selectbox("Select a sensor to visualize", sensor_display_names)
+    selected_sensor = display_to_col[selected_display]
 
-        fig = px.line(
-            df,
-            x="time_in_cycles",
-            y=selected_sensor,
-            color="unit",
-            title=f"{selected_sensor} across all units"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    fig = px.line(
+        df, x="time_in_cycles", y=selected_sensor, color="unit",
+        title=f"Trend of {selected_sensor} Across All Units"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("ℹ️ Sensor Explanation Glossary"):
-            for stype, desc in SENSOR_TOOLTIPS.items():
-                st.markdown(f"**{stype.capitalize()}**: {desc}")
+    with st.expander("ℹ️ Sensor Explanation Glossary"):
+        for stype, desc in sensor_tooltips.items():
+            st.markdown(f"**{stype.capitalize()}**: {desc}")
 
-    else:
-        st.warning("Sensor data not loaded.")
-
-# --- Unit Analysis Tab ---
-with tabs[2]:
+def render_unit_analysis_tab(df, failure_threshold):
+    """Renders the content for the Individual Unit Analysis tab."""
     st.header("🔍 Individual Unit Analysis")
-    if df is not None:
-        unit_ids = df["unit"].unique()
-        selected_unit = st.selectbox("Select a unit", sorted(unit_ids))
+    unit_ids = sorted(df["unit"].unique())
+    selected_unit = st.selectbox("Select a unit", unit_ids)
 
-        st.markdown(
-            """
-            **Note:** The red shaded area marks the last 30 cycles before the unit's failure (failure zone). Sensor readings here typically degrade rapidly.
-            """
-        )
+    st.markdown(f"""
+    **Note:** The red shaded area marks the last **{failure_threshold} cycles** before the unit's recorded failure (the "failure zone"). 
+    Sensor readings in this zone often show accelerated degradation.
+    """)
 
-        sensor_choices = st.multiselect(
-            "Select sensors to display",
-            [col for col in df.columns if col.startswith("sensor_") and not any(suffix in col for suffix in ["_rolling_mean", "_rolling_std", "_slope"])],
-            default=["sensor_2", "sensor_3"]
-        )
+    # Filter multiselect to only show base sensor names for clarity
+    base_sensor_cols = sorted([
+        col for col in df.columns if col.startswith("sensor_") and not any(
+            suffix in col for suffix in ["_rolling_mean", "_rolling_std", "_slope"])
+    ])
+    
+    sensor_choices = st.multiselect(
+        "Select sensors to display",
+        base_sensor_cols,
+        default=["sensor_2", "sensor_3"]
+    )
 
-        df_unit = df[df["unit"] == selected_unit]
-        for sensor in sensor_choices:
-            rolling_col = f"{sensor}_rolling_mean"
-            if rolling_col in df_unit.columns:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df_unit["time_in_cycles"], y=df_unit[sensor],
-                                         mode="lines", name=f"{sensor} (raw)"))
-                fig.add_trace(go.Scatter(x=df_unit["time_in_cycles"], y=df_unit[rolling_col],
-                                         mode="lines", name=f"{sensor} (rolling avg)"))
-                failure_start = df_unit["max_cycle"].max() - failure_threshold
-                fig.add_vrect(x0=failure_start, x1=df_unit["max_cycle"].max(), fillcolor="red", opacity=0.2,
-                              layer="below", line_width=0)
-                fig.update_layout(title=f"{sensor} - Unit {selected_unit}",
-                                  xaxis_title="Time (cycles)", yaxis_title="Sensor Reading")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning(f"{rolling_col} not found for {sensor}")
-    else:
-        st.warning("Sensor data not loaded.")
+    df_unit = df[df["unit"] == selected_unit].copy()
+    for sensor in sensor_choices:
+        rolling_col = f"{sensor}_rolling_mean"
+        if rolling_col in df_unit.columns:
+            fig = go.Figure()
+            # Raw sensor data
+            fig.add_trace(go.Scatter(x=df_unit["time_in_cycles"], y=df_unit[sensor],
+                                     mode="lines", name=f"{sensor} (Raw)"))
+            # Rolling average
+            fig.add_trace(go.Scatter(x=df_unit["time_in_cycles"], y=df_unit[rolling_col],
+                                     mode="lines", name=f"{sensor} (Rolling Avg)", line=dict(dash='dot')))
+            # Failure zone rectangle
+            failure_start = df_unit["max_cycle"].max() - failure_threshold
+            fig.add_vrect(x0=failure_start, x1=df_unit["max_cycle"].max(), fillcolor="red", opacity=0.2,
+                          layer="below", line_width=0)
+            
+            fig.update_layout(title=f"Analysis of {sensor} for Unit {selected_unit}",
+                              xaxis_title="Time (cycles)", yaxis_title="Sensor Reading", legend=dict(x=0.01, y=0.99))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning(f"Data for rolling average ('{rolling_col}') not found for {sensor}.")
 
-# --- RUL Predictions Tab ---
-with tabs[3]:
+def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_emojis):
+    """Renders the content for the RUL Predictions tab."""
     st.header("⏳ Remaining Useful Life (RUL) Predictions")
+    
+    if rul_df is None or rul_df.empty:
+        st.warning("No RUL predictions available to display.")
+        return
 
+    st.subheader("Predicted RUL and Risk Levels by Unit")
+    rul_display_df = rul_df.copy()
+    rul_display_df["Alert"] = rul_display_df["risk_level"].map(alert_emojis)
+    st.dataframe(
+        rul_display_df[["unit", "RUL", "Alert"]].sort_values("RUL").reset_index(drop=True),
+        use_container_width=True
+    )
+
+    # --- Comparison with True RUL ---
+    if true_rul_df is None:
+        st.info("True RUL data is not available, so performance comparison cannot be shown.")
+        return
+
+    st.subheader("📊 Model Performance: Prediction vs. Reality")
+    merged = pd.merge(
+        rul_df.rename(columns={"RUL": "RUL_pred"}),
+        true_rul_df.rename(columns={"RUL": "RUL_true"}),
+        on="unit"
+    )
+
+    if merged.empty:
+        st.warning("No overlapping units found between predictions and true RUL data.")
+        return
+
+    merged["error"] = (merged["RUL_true"] - merged["RUL_pred"]).abs()
+    unit_list = sorted(merged["unit"].unique())
+    
+    with st.expander("ℹ️ How to interpret this section"):
+        st.markdown("""
+        This view helps you assess the model's reliability on a per-engine basis.
+        - **🔧 True RUL**: The actual number of cycles the engine ran before failure.
+        - **📡 Predicted RUL**: The model's estimate of remaining cycles.
+        - **⚠️ Absolute Error**: The difference between the true and predicted RUL.
+        
+        An **underestimate** (Predicted < True) is a "safe" error, leading to early maintenance.
+        An **overestimate** (Predicted > True) is a "risky" error that could lead to unplanned failure.
+        """)
+
+    selected_unit_comp = st.selectbox("Select a Unit for Comparison", unit_list)
+    row = merged[merged["unit"] == selected_unit_comp].iloc[0]
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("🔧 True RUL", f"{row['RUL_true']} cycles")
+    col2.metric("📡 Predicted RUL", f"{row['RUL_pred']:.2f} cycles")
+    col3.metric("⚠️ Absolute Error", f"{row['error']:.2f} cycles", delta=f"{row['RUL_pred'] - row['RUL_true']:.2f}", delta_color="inverse")
+
+    if row['RUL_pred'] < high_risk_threshold:
+        st.warning("⚠️ This unit's predicted RUL is very low, flagging it for immediate attention.")
+
+    # Bar chart for visual comparison
+    fig_bar = go.Figure()
+    fig_bar.add_trace(go.Bar(
+        x=["True RUL", "Predicted RUL"],
+        y=[row["RUL_true"], row["RUL_pred"]],
+        marker_color=["#2ca02c", "#1f77b4"], # Green for true, Blue for predicted
+        text=[f"{row['RUL_true']}", f"{row['RUL_pred']:.2f}"],
+        textposition='auto'
+    ))
+    fig_bar.update_layout(title=f"RUL Comparison for Unit {selected_unit_comp}", yaxis_title="RUL (cycles)")
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+# --- Main Application ---
+def main():
+    """Main function to run the Streamlit dashboard."""
+    
+    # --- App Configuration & Constants ---
+    st.set_page_config(page_title="Engine Health Dashboard", layout="wide", initial_sidebar_state="expanded")
+    
+    # Paths and Thresholds
+    FEATURES_PATH = "data/features/train_FD001_features.csv"
+    PREDICTIONS_PATH = "data/processed/rul_predictions.csv"
+    TRUE_RUL_PATHS = ["data/cleaned/train_FD001_labeled.csv", "data/cleaned/test_FD001_labeled.csv"]
+    FAILURE_THRESHOLD = 30
+    HIGH_RISK_THRESHOLD = 30
+    MEDIUM_RISK_THRESHOLD = 100
+
+    # UI Constants
+    RISK_COLOR_MAP = {"High": "#d9534f", "Medium": "#f0ad4e", "Low": "#5cb85c"} # Red, Orange, Green
+    ALERT_EMOJIS = {"High": "🔴 High", "Medium": "🟠 Medium", "Low": "🟢 Low"}
+    SENSOR_TOOLTIPS = {
+        "raw": "Raw sensor reading as collected from the engine.",
+        "baseline": "Baseline value representing normal operating condition.",
+        "degraded": "Deviation from baseline indicating sensor degradation.",
+        "rolling_mean": "Rolling average to smooth short-term fluctuations.",
+        "rolling_std": "Rolling standard deviation showing variability over time.",
+        "slope": "Rate of change, indicating trends over a rolling window."
+    }
+
+    # --- App Title ---
+    st.title("🚀 Predictive Maintenance Dashboard")
+
+    # --- Load Data ---
+    df = load_features(FEATURES_PATH)
+    rul_df = load_rul_predictions(PREDICTIONS_PATH)
+    true_rul_df = load_true_rul_labels(TRUE_RUL_PATHS)
+
+    # --- Main Validation Block ---
+    # Stop the app if the essential sensor data is not loaded.
+    if df is None:
+        st.stop()
+
+    # --- Data Processing ---
+    df["max_cycle"] = df.groupby("unit")["time_in_cycles"].transform("max")
+    df["failure_zone"] = df["time_in_cycles"] >= (df["max_cycle"] - FAILURE_THRESHOLD)
     if rul_df is not None:
-        st.subheader("Predicted RUL and Risk Levels by Unit")
-
-        alert_emojis = {"High": "🔴 High", "Medium": "🟠 Medium", "Low": "🟢 Low"}
-        rul_display_df = rul_df.copy()
-        rul_display_df["Alert"] = rul_display_df["risk_level"].map(alert_emojis)
-        display_cols = ["unit", "RUL", "Alert"]
-        st.dataframe(
-            rul_display_df[display_cols].sort_values("RUL").reset_index(drop=True),
-            use_container_width=True
+        rul_df["risk_level"] = rul_df["RUL"].apply(
+            classify_risk, args=(HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD)
         )
 
-        if true_rul_df is not None:
-            st.subheader("📊 Per Unit Comparison")
+    # --- UI Tabs ---
+    tabs = st.tabs(["📝 Summary", "📊 Overview", "🔍 Unit Analysis", "⏳ RUL Predictions"])
 
-            # Merge predictions and true RULs
-            merged = pd.merge(
-                rul_df.rename(columns={"RUL": "RUL_pred"}),
-                true_rul_df.rename(columns={"RUL": "RUL_true"}),
-                on="unit"
-            )
-            merged["error"] = (merged["RUL_true"] - merged["RUL_pred"]).abs()
+    with tabs[0]:
+        render_summary_tab(rul_df, RISK_COLOR_MAP, HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD)
 
-            # Defensive: check merged is not empty
-            if merged.empty:
-                st.warning("No overlapping units found between predictions and true RUL data.")
-            else:
-                # Units list for dropdown
-                unit_list = sorted(merged["unit"].unique())
+    with tabs[1]:
+        render_overview_tab(df, SENSOR_TOOLTIPS)
 
-                # Defensive: If no units, warn and skip UI
-                if len(unit_list) == 0:
-                    st.warning("No units available for per-unit comparison.")
-                else:
-                    with st.expander("ℹ️ How to interpret the chart and metrics"):
-                        st.markdown("""
-                        Each unit represents a single engine at the start of its test. You’ll see:
+    with tabs[2]:
+        render_unit_analysis_tab(df, FAILURE_THRESHOLD)
 
-                        - **🔧 True RUL**: Actual cycles before failure.
-                        - **📡 Predicted RUL**: Model’s estimate at prediction time.
-                        - **⚠️ Absolute Error**: The difference between prediction and reality.
+    with tabs[3]:
+        render_rul_predictions_tab(rul_df, true_rul_df, HIGH_RISK_THRESHOLD, ALERT_EMOJIS)
 
-                        ### Example:
-                        - If **True RUL** = 268 and **Predicted RUL** = 193.5 →  
-                          The model flagged the unit **~75 cycles early**.
-
-                        🔄 Underestimate = early (safe, costly)  
-                        ⏳ Overestimate = risk of unplanned failure
-
-                        Use this view to assess model reliability per unit.
-                        """)
-
-                    # Dropdown for unit selection
-                    selected_unit = st.selectbox("Select a Unit", unit_list)
-
-                    # Defensive: check if selected_unit is in merged data
-                    filtered_rows = merged[merged["unit"] == selected_unit]
-                    if filtered_rows.empty:
-                        st.error(f"No data found for unit {selected_unit}. Please select another unit.")
-                    else:
-                        row = filtered_rows.iloc[0]
-
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("🔧 True RUL", f"{row['RUL_true']} cycles")
-                        col2.metric("📡 Predicted RUL", f"{row['RUL_pred']:.2f} cycles")
-                        col3.metric("⚠️ Absolute Error", f"{row['error']:.2f} cycles")
-
-                        if row['RUL_pred'] < HIGH_RISK_THRESHOLD:
-                            st.warning("⚠️ Predicted RUL is very low. This unit may be approaching failure.")
-
-                        # Bar chart
-                        fig_bar = go.Figure()
-                        fig_bar.add_trace(go.Bar(
-                            x=["True RUL", "Predicted RUL"],
-                            y=[row["RUL_true"], row["RUL_pred"]],
-                            marker_color=["green", "blue"]
-                        ))
-                        fig_bar.update_layout(
-                            title=f"RUL Comparison for Unit {selected_unit}",
-                            yaxis_title="RUL (cycles)"
-                        )
-                        st.plotly_chart(fig_bar, use_container_width=True)
-
-                        st.info("This view lets engineers compare model predictions against actual outcomes on a per-unit basis.")
-    else:
-        st.warning("No RUL predictions found.")
+if __name__ == "__main__":
+    main()
