@@ -13,16 +13,16 @@ Intended Use:
 - Allow batch or single-unit queries
 - Swagger UI for easy exploration, can be accessed at http://127.0.0.1:8000/docs
 
-Author: [Stuart Houston]
+Author: Stuart Houston
 Date: 18-08-2025
 """
 
 # Import necessary libraries
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 # Initialise FastAPI application
 app = FastAPI(
@@ -31,7 +31,7 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Cofiguration paths and constants
+# Configuration paths and constants
 FEATURES_PATH = Path("data/features/train_FD001_features.csv")
 PREDICTIONS_PATH = Path("data/processed/rul_predictions.csv")
 
@@ -48,25 +48,29 @@ class PredictionResponse(BaseModel):
 def load_predictions(path: Path) -> pd.DataFrame:
     """
     Loads predictions from CSV and returns a DataFrame.
-    Adds risk level classification.
+    Uses risk_level from CSV if available, otherwise computes it.
     """
     if not path.exists():
         raise FileNotFoundError(f"Prediction file not found at {path}")
+    
     df = pd.read_csv(path)
+    
     if not {"unit", "RUL"}.issubset(df.columns):
         raise ValueError("Predictions file missing required columns 'unit' and 'RUL'")
+
+    # Use risk_level from CSV if present
+    if "risk_level" not in df.columns:
+        # Fallback: compute risk if column missing
+        HIGH_RISK_THRESHOLD = 30
+        MEDIUM_RISK_THRESHOLD = 100
+        def classify_risk(rul: float) -> str:
+            if rul < HIGH_RISK_THRESHOLD:
+                return "High"
+            elif rul < MEDIUM_RISK_THRESHOLD:
+                return "Medium"
+            return "Low"
+        df["risk_level"] = df["RUL"].apply(classify_risk)
     
-    # Risk classification logic
-    HIGH_RISK_THRESHOLD = 30
-    MEDIUM_RISK_THRESHOLD = 100
-    def classify_risk(rul: float) -> str:
-        if rul < HIGH_RISK_THRESHOLD:
-            return "High"
-        elif rul < MEDIUM_RISK_THRESHOLD:
-            return "Medium"
-        return "Low"
-    
-    df["risk_level"] = df["RUL"].apply(classify_risk)
     return df
 
 # API Routes

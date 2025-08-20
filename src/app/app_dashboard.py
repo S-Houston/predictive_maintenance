@@ -1,15 +1,30 @@
-# Engine Health Dashboard
-# This Streamlit app provides an interactive dashboard for predictive maintenance of engines.
-# Version: 2.1 (Re-added risk explanation to summary tab)
+"""
+Predictive Maintenance - Streanmlit Dashboard
+==========================
 
-# --- Import necessary libraries ---
+This Streamlit Dashboard is intended to provide users with an interactive overview of engine performance. 
+It visualises sensor data trends, Remaining Useful Life (RUL) predictions, and risk classifications for predictive maintenance.
+Data is sourced from CSV files and displayed in an intuitive format.  Cached data loading is implemented to improve performance.
+
+Intended Use:
+-------------
+- Provide visual insights into sensor data trends
+- Display Remaining Useful Life (RUL) predictions
+- Allow unit-level analysis and risk classification
+- Enable comparison of predicted vs. true RUL values
+
+Author: [Stuart Houston]
+Date: 19-08-2025
+"""
+
+# Import necessary libraries
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 
-# --- Data Loading Functions ---
+# Data Loading Functions
 
 @st.cache_data # Cache data loading to improve performance
 def load_features(path):
@@ -52,7 +67,7 @@ def load_true_rul_labels(possible_paths):
     st.info("True RUL labels not found. Model performance comparison will not be available.")
     return None
 
-# --- Helper Functions ---
+# Helper Functions
 
 def classify_risk(rul, high_threshold, medium_threshold):
     """Classifies RUL into 'High', 'Medium', or 'Low' risk categories."""
@@ -70,7 +85,7 @@ def get_sensor_type(col_name, sensor_tooltips):
             return key
     return "raw"
 
-# --- UI Rendering Functions ---
+# UI Rendering Functions
 
 def render_summary_tab(rul_df, risk_color_map, high_risk_threshold, medium_risk_threshold):
     """Renders the content for the Summary tab."""
@@ -199,7 +214,7 @@ def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_e
         use_container_width=True
     )
 
-    # --- Comparison with True RUL ---
+    # Comparison with True RUL
     if true_rul_df is None:
         st.info("True RUL data is not available, so performance comparison cannot be shown.")
         return
@@ -252,11 +267,11 @@ def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_e
     fig_bar.update_layout(title=f"RUL Comparison for Unit {selected_unit_comp}", yaxis_title="RUL (cycles)")
     st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- Main Application ---
+# Main Application
 def main():
     """Main function to run the Streamlit dashboard."""
     
-    # --- App Configuration & Constants ---
+    # App Configuration & Constants
     st.set_page_config(page_title="Engine Health Dashboard", layout="wide", initial_sidebar_state="expanded")
     
     # Paths and Thresholds
@@ -279,28 +294,30 @@ def main():
         "slope": "Rate of change, indicating trends over a rolling window."
     }
 
-    # --- App Title ---
+    # App Title
     st.title("🚀 Predictive Maintenance Dashboard")
 
-    # --- Load Data ---
+    # Load Data
     df = load_features(FEATURES_PATH)
     rul_df = load_rul_predictions(PREDICTIONS_PATH)
     true_rul_df = load_true_rul_labels(TRUE_RUL_PATHS)
 
-    # --- Main Validation Block ---
+    # Main Validation Block
     # Stop the app if the essential sensor data is not loaded.
     if df is None:
         st.stop()
 
-    # --- Data Processing ---
+    # Data Processing
     df["max_cycle"] = df.groupby("unit")["time_in_cycles"].transform("max")
     df["failure_zone"] = df["time_in_cycles"] >= (df["max_cycle"] - FAILURE_THRESHOLD)
-    if rul_df is not None:
+    # Ensure 'risk_level' exists in the CSV
+    if rul_df is not None and "risk_level" not in rul_df.columns:
+        st.warning("⚠️ 'risk_level' column not found in predictions CSV. Default thresholds will be applied.")
         rul_df["risk_level"] = rul_df["RUL"].apply(
             classify_risk, args=(HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD)
         )
 
-    # --- UI Tabs ---
+    # UI Tabs
     tabs = st.tabs(["📝 Summary", "📊 Overview", "🔍 Unit Analysis", "⏳ RUL Predictions"])
 
     with tabs[0]:
