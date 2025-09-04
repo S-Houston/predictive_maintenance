@@ -73,5 +73,20 @@ Project Structure
 
 
 --------
+## 🔄 Workflow Overview
+
+```mermaid
+flowchart TD
+    A[📥 Raw Data<br>NASA CMAPSS] --> B[🧹 Data Preparation<br>(cleaning, normalisation, RUL labels)]
+    B --> C[🔧 Feature Engineering<br>(rolling stats, degradation heuristics, composite score)]
+    C --> D[🤖 Modeling<br>Baseline: Linear/Tree Models<br>Advanced: LSTM/Temporal CNN]
+    D --> E[📊 Evaluation<br>Regression: RMSE/MAE<br>Classification: Precision/Recall/F1]
+    E --> F[📝 Experiment Tracking<br>MLflow logs & comparisons]
+    F --> G[🚀 Deployment<br>FastAPI endpoint + Swagger docs]
+    G --> H[📈 Monitoring<br>(Gap: metrics dashboards, drift detection)]
+
+
+
+
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
