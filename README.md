@@ -25,51 +25,52 @@ This project is designed to be portfolio-ready and highlight skills across:
 Project Structure
 ------------
 
-    ├── LICENSE
-    ├── Makefile           <- Makefile with commands like `make data` or `make train`
-    ├── README.md          <- The top-level README for developers using this project.
+    ## Project Organisation
+
+    predictive_maintenance
+    ├── LICENSE                           <- Project license
+    ├── Makefile                          <- Convenience commands for data processing and model training
+    ├── README.md                          <- Project overview and instructions
     ├── data
-    │   ├── cleaned        <- Cleaned and preprocessed data ready for feature engineering and modeling.
-    │   ├── external       <- Data from third party sources.
-    │   ├── interim        <- Intermediate data that has been transformed.
-    │   ├── processed      <- The final, canonical data sets for modeling.
-    │   └── raw            <- The original, immutable data dump.
-    │
-    ├── docs               <- A default Sphinx project; see sphinx-doc.org for details
-    │
-    ├── models             <- Trained and serialized models, model predictions, or model summaries
-    │
-    ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-    │                         the creator's initials, and a short `-` delimited description, e.g.
-    │                         `1.0-jqp-initial-data-exploration`.
-    │
-    ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-    │
-    ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-    │   └── figures        <- Generated graphics and figures to be used in reporting
-    │
-    ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-    │                         generated with `pip freeze > requirements.txt`
-    │
-    ├── setup.py           <- Makes project pip installable (pip install -e .) so src can be imported
-    ├── src                <- Source code for use in this project.
-    │   ├── __init__.py    <- Makes src a Python module
-    │   │
-    │   ├── data           <- Scripts to download or generate data
-    │   │   └── make_dataset.py
-    │   │
-    │   ├── features       <- Scripts to turn raw or cleaned data into features for modeling
-    │   │   └── build_features.py
-    │   │
-    │   ├── models         <- Scripts to train models and then use trained models to make
-    │   │   │                 predictions
-    │   │   ├── predict_model.py
-    │   │   └── train_model.py
-    │   │
-    │   └── visualization  <- Scripts to create exploratory and results oriented visualizations
-    │       └── visualize.py
-    │
-    └── tox.ini            <- tox file with settings for running tox; see tox.readthedocs.io
+    │   ├── cleaned                        <- Cleaned & labeled datasets ready for feature engineering
+    │   ├── external                       <- Any external/third-party data
+    │   ├── features                       <- Engineered feature CSVs for training/testing
+    │   ├── interim                        <- Intermediate processing outputs
+    │   ├── processed                      <- Final canonical datasets (train/test/RUL/predictions)
+    │   └── raw                            <- Original unprocessed NASA CMAPSS data + documentation
+    ├── docs                               <- Sphinx documentation source
+    ├── models                             <- Serialized/trained models (e.g., Random Forest, LightGBM)
+    ├── notebooks                          <- Jupyter notebooks (EDA, feature engineering, prototyping)
+    ├── references                          <- Reference materials (PDFs, manuals, notes)
+    ├── reports
+    │   ├── EDA_report.html                <- Generated exploratory analysis report
+    │   └── figures                        <- Figures for reports/dashboards
+    ├── requirements.txt                   <- Python dependencies
+    ├── setup.py                           <- Project setup for pip installable module
+    ├── src                                <- Core project code
+    │   ├── __init__.py
+    │   ├── app
+    │   │   ├── app_api.py                 <- FastAPI endpoint for predictions
+    │   │   └── app_dashboard.py           <- Streamlit dashboard logic
+    │   ├── data
+    │   │   └── make_dataset.py            <- Scripts for data ingestion and cleaning
+    │   ├── features
+    │   │   ├── driver_health_indicators.py
+    │   │   ├── engineer_health_indicators.py
+    │   │   └── generate_failure_labels.py
+    │   ├── models
+    │   │   ├── train_model.py
+    │   │   ├── predict_model.py
+    │   │   ├── train_model_lightgbm.py
+    │   │   ├── train_model_xgb.py
+    │   │   └── log_top_model.py
+    │   └── visualization
+    │       └── visualize.py
+    ├── tests                              <- Unit tests with pytest
+    │   ├── test_generate_health_indicators.py
+    │   └── test_generate_labels.py
+    ├── test_environment.py                <- Script to validate Python environment setup
+    └── tox.ini                             <- Testing automation configuration
 
 
 --------
