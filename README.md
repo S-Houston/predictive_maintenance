@@ -1,19 +1,28 @@
-predictive_maintenance
-==============================
-Project Overview:
+# Predictive Maintenance with NASA CMAPSS Dataset
 
-This project focuses on developing a predictive maintenance solution for jet engines using the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset. The primary objective is to build machine learning models that accurately estimate the Remaining Useful Life (RUL) of engines based on sensor data collected over their operational cycles.
+## Project Overview
+This project develops a predictive maintenance solution for jet engines using the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset.  
+The objective is to predict the **Remaining Useful Life (RUL)** of engines from multivariate sensor data and demonstrate a full **end-to-end ML workflow**.
 
-Key aims include:
+This project is designed to be portfolio-ready and highlight skills across:
+- Exploratory Data Analysis (EDA) and feature engineering  
+- ML model development (regression + classification)  
+- Reproducibility, versioning, and modular code organisation  
+- Experiment tracking and reporting  
+- Deployment-ready architecture (FastAPI, testing, CI/CD ready)
 
-- Exploratory Data Analysis (EDA) to understand sensor behaviors and identify meaningful patterns related to engine degradation.
-- Engineering robust labels and features to enable both regression (predicting RUL) and classification (predicting imminent failure) tasks.
-- Developing and evaluating baseline and advanced predictive models.
-- Structuring the project with sound engineering practices and reproducibility to facilitate future extension and deployment.
+---
 
-The project serves as a comprehensive demonstration of end-to-end machine learning pipeline development within the predictive maintenance domain.
+## Goals
+- Understand engine degradation through sensor behavior analysis  
+- Engineer labels for **RUL prediction** and **failure classification**  
+- Benchmark baseline models and compare with advanced ML methods  
+- Build a clean, reproducible pipeline suitable for deployment  
+- Demonstrate good MLOps practices (experiment tracking, modular repo, testing)
 
-Project Organisation
+---
+
+Project Structure
 ------------
 
     ├── LICENSE
