@@ -73,19 +73,75 @@ Project Structure
 
 
 --------
-## 🔄 Workflow Overview
-
+## Workflow Overview
 ```mermaid
 flowchart TD
-    A[📥 Raw Data<br>NASA CMAPSS] --> B[🧹 Data Preparation<br>(cleaning, normalisation, RUL labels)]
-    B --> C[🔧 Feature Engineering<br>(rolling stats, degradation heuristics, composite score)]
-    C --> D[🤖 Modeling<br>Baseline: Linear/Tree Models<br>Advanced: LSTM/Temporal CNN]
-    D --> E[📊 Evaluation<br>Regression: RMSE/MAE<br>Classification: Precision/Recall/F1]
-    E --> F[📝 Experiment Tracking<br>MLflow logs & comparisons]
-    F --> G[🚀 Deployment<br>FastAPI endpoint + Swagger docs]
-    G --> H[📈 Monitoring<br>(Gap: metrics dashboards, drift detection)]
+    A[Raw Data: NASA CMAPSS] --> B[Data Preparation: cleaning, normalisation, RUL labels]
+    B --> C[Feature Engineering: rolling stats, degradation heuristics, composite score]
+    C --> D[Modeling: Baseline RF/XGB, Advanced LSTM/Temporal CNN]
+    D --> E[Evaluation: RMSE / MAE / Precision / Recall / F1]
+    E --> F[Experiment Tracking: MLflow logs & comparisons]
+    F --> G[Deployment: FastAPI endpoint + Swagger docs]
+    G --> H[Monitoring: metrics dashboards, drift detection Gap]
+```
+--------
 
+## End-to-End Workflow
 
+The pipeline is organised as follows:
+
+1. **Data Ingestion**
+   - Source: NASA CMAPSS FD001 dataset
+   - Files: [insert filenames or location here]
+   - Notes: [insert preprocessing notes here]
+
+2. **Data Preparation**
+   - Tasks:
+     - Handle missing values
+     - Normalize sensor readings
+     - Generate RUL labels
+   - Output: `/data/processed/train_processed.csv`, `/data/processed/test_processed.csv`
+
+3. **Feature Engineering**
+   - Implemented:
+     - Rolling window statistics (mean, std, min, max)
+     - Degradation threshold heuristic (e.g., 75%)
+     - Composite health score
+   - Output: `/data/processed/features.csv`
+   - *(Gap: insert final feature list here)*
+
+4. **Model Development**
+   - Baseline Models: [insert e.g. Linear Regression, Random Forest]
+   - Advanced Models: [insert e.g. LSTM, Temporal CNN]
+   - Training scripts: `src/models/train_model.py`
+   - Prediction scripts: `src/models/predict_model.py`
+   - *(Gap: insert actual models and hyperparameters here)*
+
+5. **Evaluation**
+   - Regression Metrics: RMSE, MAE → *(Gap: insert scores)*
+   - Classification Metrics: Precision, Recall, F1 → *(Gap: insert scores/confusion matrix)*
+   - Visualisations: see `/reports/figures/`
+   - *(Gap: insert sample plots here)*
+
+6. **Experiment Tracking**
+   - Tool: MLflow
+   - Parameters, metrics, and artefacts logged
+   - Example Run ID: *(Gap: paste example MLflow run link/screenshot)*
+
+7. **Deployment (Prototype)**
+   - Framework: FastAPI
+   - Endpoints:
+     - `/predict` → takes in sensor data JSON
+     - `/health` → service health check
+   - Swagger UI available at `/docs`
+   - *(Gap: paste screenshot or curl command demo)*
+
+8. **Monitoring & Next Steps**
+   - Planned:
+     - Model drift detection
+     - Dashboard integration (Streamlit/Plotly)
+     - CI/CD pipeline for automated retraining
+   - *(Gap: future work items here)*
 
 
 
