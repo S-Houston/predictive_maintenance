@@ -1,68 +1,149 @@
-predictive_maintenance
-==============================
-Project Overview:
+# Predictive Maintenance with NASA CMAPSS Dataset
 
-This project focuses on developing a predictive maintenance solution for jet engines using the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset. The primary objective is to build machine learning models that accurately estimate the Remaining Useful Life (RUL) of engines based on sensor data collected over their operational cycles.
+## Project Overview
+This project develops a predictive maintenance solution for jet engines using the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset.  
+The objective is to predict the **Remaining Useful Life (RUL)** of engines from multivariate sensor data and demonstrate a full **end-to-end ML workflow**.
 
-Key aims include:
+This project is designed to be portfolio-ready and highlight skills across:
+- Exploratory Data Analysis (EDA) and feature engineering  
+- ML model development (regression + classification)  
+- Reproducibility, versioning, and modular code organisation  
+- Experiment tracking and reporting  
+- Deployment-ready architecture (FastAPI, testing, CI/CD ready)
 
-- Exploratory Data Analysis (EDA) to understand sensor behaviors and identify meaningful patterns related to engine degradation.
-- Engineering robust labels and features to enable both regression (predicting RUL) and classification (predicting imminent failure) tasks.
-- Developing and evaluating baseline and advanced predictive models.
-- Structuring the project with sound engineering practices and reproducibility to facilitate future extension and deployment.
+---
 
-The project serves as a comprehensive demonstration of end-to-end machine learning pipeline development within the predictive maintenance domain.
+## Goals
+- Understand engine degradation through sensor behavior analysis  
+- Engineer labels for **RUL prediction** and **failure classification**  
+- Benchmark baseline models and compare with advanced ML methods  
+- Build a clean, reproducible pipeline suitable for deployment  
+- Demonstrate good MLOps practices (experiment tracking, modular repo, testing)
 
-Project Organisation
+---
+
+Project Structure
 ------------
 
-    ├── LICENSE
-    ├── Makefile           <- Makefile with commands like `make data` or `make train`
-    ├── README.md          <- The top-level README for developers using this project.
+    ## Project Organisation
+
+    predictive_maintenance
+    ├── LICENSE                           <- Project license
+    ├── Makefile                          <- Convenience commands for data processing and model training
+    ├── README.md                          <- Project overview and instructions
     ├── data
-    │   ├── cleaned        <- Cleaned and preprocessed data ready for feature engineering and modeling.
-    │   ├── external       <- Data from third party sources.
-    │   ├── interim        <- Intermediate data that has been transformed.
-    │   ├── processed      <- The final, canonical data sets for modeling.
-    │   └── raw            <- The original, immutable data dump.
-    │
-    ├── docs               <- A default Sphinx project; see sphinx-doc.org for details
-    │
-    ├── models             <- Trained and serialized models, model predictions, or model summaries
-    │
-    ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-    │                         the creator's initials, and a short `-` delimited description, e.g.
-    │                         `1.0-jqp-initial-data-exploration`.
-    │
-    ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-    │
-    ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-    │   └── figures        <- Generated graphics and figures to be used in reporting
-    │
-    ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-    │                         generated with `pip freeze > requirements.txt`
-    │
-    ├── setup.py           <- Makes project pip installable (pip install -e .) so src can be imported
-    ├── src                <- Source code for use in this project.
-    │   ├── __init__.py    <- Makes src a Python module
-    │   │
-    │   ├── data           <- Scripts to download or generate data
-    │   │   └── make_dataset.py
-    │   │
-    │   ├── features       <- Scripts to turn raw or cleaned data into features for modeling
-    │   │   └── build_features.py
-    │   │
-    │   ├── models         <- Scripts to train models and then use trained models to make
-    │   │   │                 predictions
-    │   │   ├── predict_model.py
-    │   │   └── train_model.py
-    │   │
-    │   └── visualization  <- Scripts to create exploratory and results oriented visualizations
-    │       └── visualize.py
-    │
-    └── tox.ini            <- tox file with settings for running tox; see tox.readthedocs.io
+    │   ├── cleaned                        <- Cleaned & labeled datasets ready for feature engineering
+    │   ├── external                       <- Any external/third-party data
+    │   ├── features                       <- Engineered feature CSVs for training/testing
+    │   ├── interim                        <- Intermediate processing outputs
+    │   ├── processed                      <- Final canonical datasets (train/test/RUL/predictions)
+    │   └── raw                            <- Original unprocessed NASA CMAPSS data + documentation
+    ├── docs                               <- Sphinx documentation source
+    ├── models                             <- Serialized/trained models (e.g., Random Forest, LightGBM)
+    ├── notebooks                          <- Jupyter notebooks (EDA, feature engineering, prototyping)
+    ├── references                          <- Reference materials (PDFs, manuals, notes)
+    ├── reports
+    │   ├── EDA_report.html                <- Generated exploratory analysis report
+    │   └── figures                        <- Figures for reports/dashboards
+    ├── requirements.txt                   <- Python dependencies
+    ├── setup.py                           <- Project setup for pip installable module
+    ├── src                                <- Core project code
+    │   ├── __init__.py
+    │   ├── app
+    │   │   ├── app_api.py                 <- FastAPI endpoint for predictions
+    │   │   └── app_dashboard.py           <- Streamlit dashboard logic
+    │   ├── data
+    │   │   └── make_dataset.py            <- Scripts for data ingestion and cleaning
+    │   ├── features
+    │   │   ├── driver_health_indicators.py
+    │   │   ├── engineer_health_indicators.py
+    │   │   └── generate_failure_labels.py
+    │   ├── models
+    │   │   ├── train_model.py
+    │   │   ├── predict_model.py
+    │   │   ├── train_model_lightgbm.py
+    │   │   ├── train_model_xgb.py
+    │   │   └── log_top_model.py
+    │   └── visualization
+    │       └── visualize.py
+    ├── tests                              <- Unit tests with pytest
+    │   ├── test_generate_health_indicators.py
+    │   └── test_generate_labels.py
+    ├── test_environment.py                <- Script to validate Python environment setup
+    └── tox.ini                             <- Testing automation configuration
 
 
 --------
+## Workflow Overview
+```mermaid
+flowchart TD
+    A[Raw Data: NASA CMAPSS] --> B[Data Preparation: cleaning, normalisation, RUL labels]
+    B --> C[Feature Engineering: rolling stats, degradation heuristics, composite score]
+    C --> D[Modeling: Baseline RF/XGB, Advanced LSTM/Temporal CNN]
+    D --> E[Evaluation: RMSE / MAE / Precision / Recall / F1]
+    E --> F[Experiment Tracking: MLflow logs & comparisons]
+    F --> G[Deployment: FastAPI endpoint + Swagger docs]
+    G --> H[Monitoring: metrics dashboards, drift detection Gap]
+```
+--------
+
+## End-to-End Workflow
+
+The pipeline is organised as follows:
+
+1. **Data Ingestion**
+   - Source: NASA CMAPSS FD001 dataset
+   - Files: [insert filenames or location here]
+   - Notes: [insert preprocessing notes here]
+
+2. **Data Preparation**
+   - Tasks:
+     - Handle missing values
+     - Normalize sensor readings
+     - Generate RUL labels
+   - Output: `/data/processed/train_processed.csv`, `/data/processed/test_processed.csv`
+
+3. **Feature Engineering**
+   - Implemented:
+     - Rolling window statistics (mean, std, min, max)
+     - Degradation threshold heuristic (e.g., 75%)
+     - Composite health score
+   - Output: `/data/processed/features.csv`
+   - *(Gap: insert final feature list here)*
+
+4. **Model Development**
+   - Baseline Models: [insert e.g. Linear Regression, Random Forest]
+   - Advanced Models: [insert e.g. LSTM, Temporal CNN]
+   - Training scripts: `src/models/train_model.py`
+   - Prediction scripts: `src/models/predict_model.py`
+   - *(Gap: insert actual models and hyperparameters here)*
+
+5. **Evaluation**
+   - Regression Metrics: RMSE, MAE → *(Gap: insert scores)*
+   - Classification Metrics: Precision, Recall, F1 → *(Gap: insert scores/confusion matrix)*
+   - Visualisations: see `/reports/figures/`
+   - *(Gap: insert sample plots here)*
+
+6. **Experiment Tracking**
+   - Tool: MLflow
+   - Parameters, metrics, and artefacts logged
+   - Example Run ID: *(Gap: paste example MLflow run link/screenshot)*
+
+7. **Deployment (Prototype)**
+   - Framework: FastAPI
+   - Endpoints:
+     - `/predict` → takes in sensor data JSON
+     - `/health` → service health check
+   - Swagger UI available at `/docs`
+   - *(Gap: paste screenshot or curl command demo)*
+
+8. **Monitoring & Next Steps**
+   - Planned:
+     - Model drift detection
+     - Dashboard integration (Streamlit/Plotly)
+     - CI/CD pipeline for automated retraining
+   - *(Gap: future work items here)*
+
+
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
