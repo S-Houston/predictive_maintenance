@@ -77,73 +77,176 @@ Project Structure
 ## Workflow Overview
 ```mermaid
 flowchart TD
-    A[Raw Data: NASA CMAPSS] --> B[Data Preparation: cleaning, normalisation, RUL labels]
-    B --> C[Feature Engineering: rolling stats, degradation heuristics, composite score]
-    C --> D[Modeling: Baseline RF/XGB, Advanced LSTM/Temporal CNN]
-    D --> E[Evaluation: RMSE / MAE / Precision / Recall / F1]
-    E --> F[Experiment Tracking: MLflow logs & comparisons]
-    F --> G[Deployment: FastAPI endpoint + Swagger docs]
-    G --> H[Monitoring: metrics dashboards, drift detection Gap]
+    A[Raw Engine Sensor Data] --> B[Feature Engineering]
+    B --> C[Train LightGBM Model]
+    B --> D[Train XGBoost Model]
+    C --> E[MLflow Experiment Logging]
+    D --> E
+    E --> F[Select Best Model]
+    F --> G[Predict RUL]
+    G --> H[Classify Risk]
+    H --> I[Save Predictions CSV]
+    I --> J[Serve via FastAPI API]
+    J --> K[Streamlit Dashboard Visualization]
 ```
 --------
 
-## End-to-End Workflow
+## MLflow Experiment Tracking
 
-The pipeline is organised as follows:
+Experiments are tracked using MLflow. Key experiments include:
 
-1. **Data Ingestion**
-   - Source: NASA CMAPSS FD001 dataset
-   - Files: [insert filenames or location here]
-   - Notes: [insert preprocessing notes here]
+FD001 RUL LightGBM Hyperparam Tuning
 
-2. **Data Preparation**
-   - Tasks:
-     - Handle missing values
-     - Normalize sensor readings
-     - Generate RUL labels
-   - Output: `/data/processed/train_processed.csv`, `/data/processed/test_processed.csv`
+FD001 RUL XGBoost Hyperparam Tuning
 
-3. **Feature Engineering**
-   - Implemented:
-     - Rolling window statistics (mean, std, min, max)
-     - Degradation threshold heuristic (e.g., 75%)
-     - Composite health score
-   - Output: `/data/processed/features.csv`
-   - *(Gap: insert final feature list here)*
+FD001 RUL Hyperparam Tuning (baseline)
 
-4. **Model Development**
-   - Baseline Models: [insert e.g. Linear Regression, Random Forest]
-   - Advanced Models: [insert e.g. LSTM, Temporal CNN]
-   - Training scripts: `src/models/train_model.py`
-   - Prediction scripts: `src/models/predict_model.py`
-   - *(Gap: insert actual models and hyperparameters here)*
+All training scripts log metrics, parameters, feature importance, and models to MLflow.
 
-5. **Evaluation**
-   - Regression Metrics: RMSE, MAE → *(Gap: insert scores)*
-   - Classification Metrics: Precision, Recall, F1 → *(Gap: insert scores/confusion matrix)*
-   - Visualisations: see `/reports/figures/`
-   - *(Gap: insert sample plots here)*
+--------
 
-6. **Experiment Tracking**
-   - Tool: MLflow
-   - Parameters, metrics, and artefacts logged
-   - Example Run ID: *(Gap: paste example MLflow run link/screenshot)*
+## Training Scripts
+**train_model_lightgbm.py**
 
-7. **Deployment (Prototype)**
-   - Framework: FastAPI
-   - Endpoints:
-     - `/predict` → takes in sensor data JSON
-     - `/health` → service health check
-   - Swagger UI available at `/docs`
-   - *(Gap: paste screenshot or curl command demo)*
+Trains LightGBM models with random hyperparameter search.
 
-8. **Monitoring & Next Steps**
-   - Planned:
-     - Model drift detection
-     - Dashboard integration (Streamlit/Plotly)
-     - CI/CD pipeline for automated retraining
-   - *(Gap: future work items here)*
+Logs metrics (MAE, RMSE, R2, Max Error) to MLflow.
 
+Saves feature importances and columns.
 
+Example metrics logging snippet:
+```python
+mlflow.log_metric("MAE", mae)
+mlflow.log_metric("RMSE", rmse)
+mlflow.log_metric("R2", r2)
+mlflow.log_metric("Max Error", max_err)
+```
+**train_model_xgb.py**
+
+Trains XGBoost models with random hyperparameter search.
+
+Logs similar metrics to MLflow.
+
+--------
+
+## Inference
+**predict_model.py**
+
+Loads the best model from MLflow.
+
+Predicts RUL for test data.
+
+Classifies risk: High (<30 cycles), Medium (<100 cycles), Low (≥100 cycles).
+
+Logs inference run and predictions to MLflow.
+
+Saves predictions CSV in **data/processed/rul_predictions.csv**.
+
+Saves feature importances for analysis.
+
+--------
+
+## Top Model Comparison
+**log_top_model.py**
+
+Fetches the best run from each experiment.
+
+Compares models based on MAE, RMSE, R2, Max Error.
+
+Visualizes comparison using Seaborn barplots.
+
+--------
+
+## API
+**app/app_api.py**
+
+FastAPI service exposing endpoints:
+
+| End Point  | Description  |
+|------------|--------------|
+| GET /    | Health check        |
+| GET /predictions     | All RUL predictions      |
+| GET /predictions/{id}     | Single unit RUL prediction      |
+
+Can be expanded to accept raw sensor input and return predictions.
+
+Swagger UI available at **http://127.0.0.1:8000/docs**.
+
+--------
+
+## Streamlit Dashboard
+**app/app_dashboard.py**
+
+Interactive dashboard displaying:
+
+- Engine sensor trends
+
+- RUL predictions & risk levels
+
+- Unit-level analysis and comparison with true RUL
+
+Tabs include:
+
+- Summary
+
+- Overview
+
+- Individual Unit Analysis
+
+- RUL Predictions
+
+Cached loading for faster performance using **@st.cache_data**.
+
+--------
+
+## Risk Classification
+
+| Risk Level | RUL (cycles) |
+|------------|--------------|
+| High       | < 30         |
+| Medium     | 30–100       |
+| Low        | ≥ 100        |
+
+--------
+
+## Usage
+### Run MLflow server
+```python
+mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
+```
+### Train Models
+```python
+python scripts/train_model_lightgbm.py
+python scripts/train_model_xgb.py
+```
+### Run Predictions
+```python
+python scripts/predict_model.py
+```
+### Start API
+```python
+uvicorn app.app_api:app --reload
+```
+### Launch Dashboard
+```python
+streamlit run app/app_dashboard.py
+```
+### Dependencies
+
+Install dependencies from **requirements.txt**:
+```python
+pip install -r requirements.txt
+```
+Key packages:
+
+- pandas, numpy
+
+- scikit-learn, xgboost, lightgbm
+
+- mlflow
+
+- streamlit, plotly
+
+- fastapi, pydantic, uvicorn
 
 <p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
