@@ -258,14 +258,31 @@ def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_e
     col1, col2, col3 = st.columns(3)
     col1.metric("True RUL", f"{row['RUL_true']} cycles")
     col2.metric("Predicted RUL", f"{row['RUL_pred']:.2f} cycles")
-    col3.metric("Absolute Error", f"{row['error']:.2f} cycles", delta=f"{row['RUL_pred'] - row['RUL_true']:.2f}", delta_color="inverse")
+    col3.metric("Absolute Error", f"{row['error']:.2f} cycles", 
+                delta=f"{row['RUL_pred'] - row['RUL_true']:.2f}", delta_color="inverse")
+
+    # Explanation dropdown
+    with st.expander("What does Absolute Error mean?"):
+        st.markdown("""
+        **Absolute Error** = | True RUL − Predicted RUL |  
+        
+        - It measures how far off the model’s prediction is from the actual Remaining Useful Life (RUL).  
+        - A smaller error means the prediction is closer to reality.  
+        - Example: If the true RUL = 20 cycles and the model predicts 15 cycles,  
+          Absolute Error = |20 − 15| = 5 cycles.
+        """)
+
     if row['RUL_pred'] < high_risk_threshold:
         st.warning("Predicted RUL is very low – prioritize maintenance.")
 
     fig_bar = go.Figure()
-    fig_bar.add_trace(go.Bar(x=["True RUL", "Predicted RUL"], y=[row["RUL_true"], row["RUL_pred"]],
-                             marker_color=["#2ca02c", "#1f77b4"], text=[f"{row['RUL_true']}", f"{row['RUL_pred']:.2f}"],
-                             textposition='auto'))
+    fig_bar.add_trace(go.Bar(
+        x=["True RUL", "Predicted RUL"],
+        y=[row["RUL_true"], row["RUL_pred"]],
+        marker_color=["#2ca02c", "#1f77b4"],
+        text=[f"{row['RUL_true']}", f"{row['RUL_pred']:.2f}"],
+        textposition='auto'
+    ))
     fig_bar.update_layout(title=f"RUL Comparison for Unit {selected_unit_comp}", yaxis_title="RUL (cycles)")
     st.plotly_chart(fig_bar, use_container_width=True)
 
