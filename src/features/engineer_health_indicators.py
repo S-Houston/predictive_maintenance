@@ -71,7 +71,7 @@ def add_rolling_features(df, sensor_cols, window=5):
             lambda x: x.rolling(window, min_periods=1).std()
         )
 
-        # Cycle-to-cycle change (previously called slope)
+        # Cycle-to-cycle change 
         df_rolled[f"{sensor}_cycle_change"] = df.groupby("unit")[sensor].transform(
             lambda x: x.diff()
         )
@@ -79,23 +79,22 @@ def add_rolling_features(df, sensor_cols, window=5):
     return df_rolled
 
 
-def compute_health_score(df, weights=None):
+# NOTE: Removed health_score, can revisit later
+#def compute_health_score(df, weights=None):
     """
-    Aggregate all sensor degradation flags to compute a health score per row.
+    #Aggregate all sensor degradation flags to compute a health score per row.
        
     """
-    degradation_flags = df.filter(like="_degraded")
+    #degradation_flags = df.filter(like="_degraded")
 
-    if weights:
+    #if weights:
         # Weighted score: multiply each column by its weight
-        df["health_score"] = sum(
-            df[col] * weights.get(col.replace("_degraded", ""), 1.0) for col in degradation_flags.columns
-        )
-    else:
+        #df["health_score"] = sum(
+            #df[col] * weights.get(col.replace("_degraded", ""), 1.0) for col in degradation_flags.columns)
+    #else:
         # Simple sum of flags (equal weight)
-        df["health_score"] = degradation_flags.sum(axis=1)
-    return df
-
+        #df["health_score"] = degradation_flags.sum(axis=1)
+    #return df
 
 def engineer_health_indicators(df, sensor_cols, baseline_window=5, rolling_window=5, threshold=0.75):
     """
@@ -106,8 +105,7 @@ def engineer_health_indicators(df, sensor_cols, baseline_window=5, rolling_windo
     2. Merge baselines into the main DataFrame.
     3. Apply degradation flags (e.g., below 75% of baseline).
     4. Add rolling features (mean, std, cycle-to-cycle change).
-    5. Compute composite health score.
-
+    
     Parameters:
     - df: Input DataFrame
     - sensor_cols: List of sensor columns to process
@@ -130,8 +128,8 @@ def engineer_health_indicators(df, sensor_cols, baseline_window=5, rolling_windo
     logging.info(f"Step 4: Adding rolling features (mean, std, cycle_change) with window={rolling_window}")
     df = add_rolling_features(df, sensor_cols, rolling_window)
 
-    logging.info("Step 5: Computing composite health score")
-    df = compute_health_score(df)
+    #logging.info("Step 5: Computing composite health score")
+    #df = compute_health_score(df)
 
     logging.info("Health indicators successfully engineered.")
     return df

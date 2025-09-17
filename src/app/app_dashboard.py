@@ -31,10 +31,11 @@ def load_features(path):
             return None
         df["unit"] = pd.to_numeric(df["unit"], errors="coerce").astype("Int64")
         df["time_in_cycles"] = pd.to_numeric(df["time_in_cycles"], errors="coerce").astype("Int64")
-        if "health_score" in df.columns:
-            df["health_score"] = pd.to_numeric(df["health_score"], errors="coerce").fillna(0)
-        else:
-            df["health_score"] = 0
+        # Remove health_score for demo
+        #if "health_score" in df.columns:
+        #    df["health_score"] = pd.to_numeric(df["health_score"], errors="coerce").fillna(0)
+        #else:
+        #    df["health_score"] = 0
         df.dropna(subset=["unit", "time_in_cycles"], inplace=True)
         return df
     except FileNotFoundError:
@@ -121,8 +122,8 @@ def render_overview_tab(df, sensor_tooltips):
     st.header("Sensor Trends Overview")
 
     # Only include processed/degraded sensors + derived metrics by default
-    processed_cols = [col for col in df.columns if any(suffix in col for suffix in ["degraded", "rolling_mean", "rolling_std", "health_score"])]
-    
+    # Removed health_score for demo
+    processed_cols = [col for col in df.columns if any(suffix in col for suffix in ["degraded", "rolling_mean", "rolling_std"])]
     # Map columns to display names with type hint
     sensor_display_names = [f"{col} ({get_sensor_type(col, sensor_tooltips)})" for col in processed_cols]
     display_to_col = dict(zip(sensor_display_names, processed_cols))
@@ -289,7 +290,8 @@ def main():
         "rolling_mean": "Rolling average of sensor readings.",
         "rolling_std": "Rolling standard deviation.",
         "cycle_to_cycle_change": "Difference between consecutive cycles.",
-        "health_score": "Composite measure of overall unit health."
+        # Removed health_score for demo
+        #"health_score": "Composite measure of overall unit health."
     }
 
     st.title("Predictive Maintenance Dashboard")
