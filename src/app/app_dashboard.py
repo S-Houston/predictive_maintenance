@@ -11,6 +11,7 @@ to support predictive maintenance. Features include:
 - Unit-level analysis with failure zone highlighting
 - RUL predictions with model vs true comparisons
 - Multi-unit comparison for selected sensors
+- Commercial analysis with estimated costs and savings
 """
 
 # Import necessary libraries
@@ -19,6 +20,14 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+
+# --- Assumptions for demo ---
+COST_PER_HOUR = 5000
+DOWNTIME_HOURS_FAILURE = 48
+DOWNTIME_HOURS_PROACTIVE = 8
+PROACTIVE_FIXED_COST = 20000
+CRITICAL_THRESHOLD = 30
+WARNING_THRESHOLD = 60
 
 # -------------------- Data Loading --------------------
 
@@ -31,11 +40,6 @@ def load_features(path):
             return None
         df["unit"] = pd.to_numeric(df["unit"], errors="coerce").astype("Int64")
         df["time_in_cycles"] = pd.to_numeric(df["time_in_cycles"], errors="coerce").astype("Int64")
-        # Remove health_score for demo
-        #if "health_score" in df.columns:
-        #    df["health_score"] = pd.to_numeric(df["health_score"], errors="coerce").fillna(0)
-        #else:
-        #    df["health_score"] = 0
         df.dropna(subset=["unit", "time_in_cycles"], inplace=True)
         return df
     except FileNotFoundError:
@@ -118,31 +122,22 @@ def render_summary_tab(rul_df, risk_color_map, high_risk_threshold, medium_risk_
         """)
 
 def render_overview_tab(df, sensor_tooltips):
-    """Renders the Sensor Overview tab with filtered sensors and multi-unit comparison."""
     st.header("Sensor Trends Overview")
 
-    # Only include processed/degraded sensors + derived metrics by default
-    # Removed health_score for demo
     processed_cols = [col for col in df.columns if any(suffix in col for suffix in ["degraded", "rolling_mean", "rolling_std"])]
-    # Map columns to display names with type hint
     sensor_display_names = [f"{col} ({get_sensor_type(col, sensor_tooltips)})" for col in processed_cols]
     display_to_col = dict(zip(sensor_display_names, processed_cols))
 
     selected_display = st.selectbox("Select a sensor to visualize", sensor_display_names)
     selected_sensor = display_to_col[selected_display]
 
-    # Unit selection controls
     unit_ids = sorted(df["unit"].unique())
-    view_mode = st.radio(
-        "Select view mode:",
-        options=["Single Unit", "Compare Units", "All Units"]
-    )
+    view_mode = st.radio("Select view mode:", options=["Single Unit", "Compare Units", "All Units"])
 
     if view_mode == "Single Unit":
         selected_unit = st.selectbox("Select a unit", unit_ids, index=0)
         df_plot = df[df["unit"] == selected_unit]
         title = f"Trend of {selected_sensor} for Unit {selected_unit}"
-
     elif view_mode == "Compare Units":
         selected_units = st.multiselect("Select units to compare", unit_ids, default=unit_ids[:2])
         if not selected_units:
@@ -150,29 +145,19 @@ def render_overview_tab(df, sensor_tooltips):
             return
         df_plot = df[df["unit"].isin(selected_units)]
         title = f"Trend of {selected_sensor} for Units {', '.join(map(str, selected_units))}"
-
-    else:  # All Units
+    else:
         df_plot = df
         title = f"Trend of {selected_sensor} Across All Units"
 
-    # Plot
-    fig = px.line(
-        df_plot,
-        x="time_in_cycles",
-        y=selected_sensor,
-        color="unit" if view_mode != "Single Unit" else None,
-        title=title
-    )
+    fig = px.line(df_plot, x="time_in_cycles", y=selected_sensor,
+                  color="unit" if view_mode != "Single Unit" else None, title=title)
     st.plotly_chart(fig, use_container_width=True)
 
-    # Sensor glossary
     with st.expander("Sensor Explanation Glossary"):
         for stype, desc in sensor_tooltips.items():
             st.markdown(f"**{stype.capitalize()}**: {desc}")
 
-
-def render_unit_analysis_tab(df, failure_threshold):
-    """Renders the Individual Unit Analysis tab with multi-unit comparison."""
+def render_unit_analysis_tab(df, failure_threshold, rul_df=None):
     st.header("Individual Unit Analysis")
 
     unit_ids = sorted(df["unit"].unique())
@@ -182,21 +167,13 @@ def render_unit_analysis_tab(df, failure_threshold):
         return
 
     st.markdown(f"""
-    **Note:** The red shaded area marks the last **{failure_threshold} cycles** before each unit's recorded failure (the "failure zone"). 
-    Sensor readings in this zone often show accelerated degradation.
+    **Note:**  
+    - The **orange shaded area** marks the recommended **optimum maintenance window** (~20 cycles before the critical threshold).  
+    - The **red shaded area** marks the last **{failure_threshold} cycles** before each unit's recorded failure.
     """)
 
-    # Filter for base sensors (no rolling stats)
-    base_sensor_cols = sorted([
-        col for col in df.columns if col.startswith("sensor_") and not any(
-            suffix in col for suffix in ["_rolling_mean", "_rolling_std", "_slope"])
-    ])
-
-    sensor_choices = st.multiselect(
-        "Select sensors to display",
-        base_sensor_cols,
-        default=["sensor_2", "sensor_3"]
-    )
+    base_sensor_cols = sorted([col for col in df.columns if col.startswith("sensor_") and not any(suffix in col for suffix in ["_rolling_mean", "_rolling_std", "_slope"])])
+    sensor_choices = st.multiselect("Select sensors to display", base_sensor_cols, default=["sensor_2", "sensor_3"])
 
     for sensor in sensor_choices:
         fig = go.Figure()
@@ -204,33 +181,67 @@ def render_unit_analysis_tab(df, failure_threshold):
             df_unit = df[df["unit"] == unit].copy()
             rolling_col = f"{sensor}_rolling_mean"
 
-            # Raw sensor data
             fig.add_trace(go.Scatter(
                 x=df_unit["time_in_cycles"], y=df_unit[sensor],
                 mode="lines", name=f"{sensor} (Raw) - Unit {unit}"
             ))
 
-            # Rolling average if exists
             if rolling_col in df_unit.columns:
                 fig.add_trace(go.Scatter(
                     x=df_unit["time_in_cycles"], y=df_unit[rolling_col],
                     mode="lines", name=f"{sensor} (Rolling Avg) - Unit {unit}", line=dict(dash='dot')
                 ))
 
-            # Failure zone rectangle
-            failure_start = df_unit["max_cycle"].max() - failure_threshold
+            max_cycle = df_unit["max_cycle"].max()
+            failure_start = max_cycle - failure_threshold
+            optimum_start = failure_start - 20  # 20 cycles before critical zone
+
+            # Orange zone (optimum proactive window: 50–30 cycles before failure)
             fig.add_vrect(
-                x0=failure_start, x1=df_unit["max_cycle"].max(),
-                fillcolor="red", opacity=0.15, layer="below", line_width=0
+                x0=optimum_start, x1=failure_start,
+                fillcolor="orange", opacity=0.15, layer="below", line_width=0,
+                annotation_text="Optimum Maintenance Window", annotation_position="top right"
             )
 
-        fig.update_layout(
-            title=f"Comparison of {sensor} Across Units {', '.join(map(str, selected_units))}",
-            xaxis_title="Time (cycles)", yaxis_title="Sensor Reading",
-            legend=dict(x=0.01, y=0.99)
-        )
+            # Red zone (critical: <30 cycles to failure)
+            fig.add_vrect(
+                x0=failure_start, x1=max_cycle,
+                fillcolor="red", opacity=0.15, layer="below", line_width=0,
+                annotation_text="Critical Zone", annotation_position="top left"
+            )
+        fig.update_layout(title=f"Comparison of {sensor} Across Units {', '.join(map(str, selected_units))}",
+                          xaxis_title="Time (cycles)", yaxis_title="Sensor Reading",
+                          legend=dict(x=0.01, y=0.99))
         st.plotly_chart(fig, use_container_width=True)
-        
+
+    # Recommended Intervention with Cost Savings
+    if rul_df is not None:
+        selected_rul = rul_df[rul_df["unit"].isin(selected_units)]
+        min_rul = selected_rul["RUL"].min()
+        if min_rul < CRITICAL_THRESHOLD:
+            recommendation = "Immediate Maintenance"
+            color = "red"
+            estimated_cost = DOWNTIME_HOURS_FAILURE * COST_PER_HOUR
+            proactive_cost = DOWNTIME_HOURS_PROACTIVE * COST_PER_HOUR + PROACTIVE_FIXED_COST
+            savings = estimated_cost - proactive_cost
+        elif min_rul < WARNING_THRESHOLD:
+            recommendation = "Schedule Maintenance"
+            color = "orange"
+            estimated_cost = DOWNTIME_HOURS_FAILURE * COST_PER_HOUR
+            proactive_cost = DOWNTIME_HOURS_PROACTIVE * COST_PER_HOUR + PROACTIVE_FIXED_COST
+            savings = estimated_cost - proactive_cost
+        else:
+            recommendation = "No Action Needed"
+            color = "green"
+            savings = 0
+
+        st.markdown(
+            f"**Recommended Intervention for Selected Units:** "
+            f"<span style='color:{color};font-weight:bold'>{recommendation}</span>", unsafe_allow_html=True
+        )
+        st.caption(f"Based on minimum predicted RUL ({min_rul:.1f} cycles). "
+                   f"Estimated cost savings if proactive maintenance: £{savings:,.0f}.")
+
 def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_emojis):
     st.header("Remaining Useful Life (RUL) Predictions")
     if rul_df is None or rul_df.empty:
@@ -261,15 +272,11 @@ def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_e
     col3.metric("Absolute Error", f"{row['error']:.2f} cycles", 
                 delta=f"{row['RUL_pred'] - row['RUL_true']:.2f}", delta_color="inverse")
 
-    # Explanation dropdown
     with st.expander("What does Absolute Error mean?"):
         st.markdown("""
         **Absolute Error** = | True RUL − Predicted RUL |  
-        
-        - It measures how far off the model’s prediction is from the actual Remaining Useful Life (RUL).  
-        - A smaller error means the prediction is closer to reality.  
-        - Example: If the true RUL = 20 cycles and the model predicts 15 cycles,  
-          Absolute Error = |20 − 15| = 5 cycles.
+        - Smaller error = closer to reality
+        - Example: True RUL = 20, Predicted RUL = 15 → Absolute Error = 5 cycles
         """)
 
     if row['RUL_pred'] < high_risk_threshold:
@@ -285,6 +292,66 @@ def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_e
     ))
     fig_bar.update_layout(title=f"RUL Comparison for Unit {selected_unit_comp}", yaxis_title="RUL (cycles)")
     st.plotly_chart(fig_bar, use_container_width=True)
+
+def render_commercial_analysis_tab(rul_df):
+    st.header("Commercial Analysis – Estimated Costs")
+
+    if rul_df is None or rul_df.empty:
+        st.warning("RUL prediction data required for commercial analysis.")
+        return
+
+    # ✅ Fix: use the lowest RUL per unit (latest state), not first occurrence
+    analysis_df = rul_df.loc[rul_df.groupby("unit")["RUL"].idxmin()].copy()
+
+    def calculate_cost(rul, risk):
+        if risk == "High":
+            return DOWNTIME_HOURS_FAILURE * COST_PER_HOUR
+        elif risk == "Medium":
+            return DOWNTIME_HOURS_PROACTIVE * COST_PER_HOUR + PROACTIVE_FIXED_COST
+        else:
+            return 0
+
+    analysis_df["Estimated Cost (£)"] = analysis_df.apply(
+        lambda row: calculate_cost(row["RUL"], row["risk_level"]), axis=1
+    )
+    
+    def highlight_cost(val):
+        if val > 200000:
+            color = 'red'
+        elif val > 50000:
+            color = 'orange'
+        else:
+            color = 'green'
+        return f'color: {color}; font-weight:bold'
+
+    st.subheader("Unit-wise Estimated Costs")
+    st.dataframe(
+        analysis_df[["unit", "RUL", "risk_level", "Estimated Cost (£)"]]
+        .sort_values("Estimated Cost (£)", ascending=False)
+        .style.map(highlight_cost, subset=["Estimated Cost (£)"]),
+        use_container_width=True
+    )
+
+    total_cost = analysis_df["Estimated Cost (£)"].sum()
+    st.markdown(f"**Total Estimated Cost Across Units:** £{total_cost:,.0f}")
+    st.caption("Costs are calculated based on predicted RUL and the assumptions for downtime and proactive maintenance.")
+
+    st.subheader("Estimated Costs by Risk Level")
+    risk_summary = analysis_df.groupby("risk_level")["Estimated Cost (£)"].sum().reindex(["High", "Medium", "Low"], fill_value=0)
+    st.bar_chart(risk_summary)
+
+    st.subheader("Top Cost Drivers")
+    fig = px.bar(
+        analysis_df.sort_values("Estimated Cost (£)", ascending=False),
+        x="unit",
+        y="Estimated Cost (£)",
+        color="risk_level",
+        color_discrete_map={"High": "red", "Medium": "orange", "Low": "green"},
+        title="Unit-wise Estimated Cost Ranking",
+        text="Estimated Cost (£)"
+    )
+    fig.update_layout(xaxis_title="Unit", yaxis_title="Estimated Cost (£)")
+    st.plotly_chart(fig, use_container_width=True)
 
 # -------------------- Main Application --------------------
 
@@ -307,8 +374,6 @@ def main():
         "rolling_mean": "Rolling average of sensor readings.",
         "rolling_std": "Rolling standard deviation.",
         "cycle_to_cycle_change": "Difference between consecutive cycles.",
-        # Removed health_score for demo
-        #"health_score": "Composite measure of overall unit health."
     }
 
     st.title("Predictive Maintenance Dashboard")
@@ -326,15 +391,17 @@ def main():
     if rul_df is not None and "risk_level" not in rul_df.columns:
         rul_df["risk_level"] = rul_df["RUL"].apply(classify_risk, args=(HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD))
 
-    tabs = st.tabs(["Summary", "Overview", "Unit Analysis", "RUL Predictions"])
+    tabs = st.tabs(["Summary", "Overview", "Unit Analysis", "RUL Predictions", "Commercial Analysis"])
     with tabs[0]:
         render_summary_tab(rul_df, RISK_COLOR_MAP, HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD)
     with tabs[1]:
         render_overview_tab(df, SENSOR_TOOLTIPS)
     with tabs[2]:
-        render_unit_analysis_tab(df, FAILURE_THRESHOLD)
+        render_unit_analysis_tab(df, FAILURE_THRESHOLD, rul_df)
     with tabs[3]:
         render_rul_predictions_tab(rul_df, true_rul_df, HIGH_RISK_THRESHOLD, ALERT_EMOJIS)
+    with tabs[4]:
+        render_commercial_analysis_tab(rul_df)
 
 if __name__ == "__main__":
     main()
