@@ -108,22 +108,22 @@ Significant project decisions, oldest first. Add new entries at the bottom, in t
 - Choice: `load_best_model` finds the run's MLflow 3 logged model (`search_logged_models` by `source_run_id` and name) and loads `models:/<model_id>`; `runs:/<run>/<name>` is kept as a fallback.
 - Alternatives considered: keep `runs:/` and live with the delay; lower the MLflow client's HTTP retry settings; download the artifact files directly by path.
 - Reasoning: MLflow 3 stores logged models outside the run's artifact folder, so `runs:/` first requests a missing artifact, gets a 500 and sits in retry backoff for about 4 minutes. Loading took 252 s before and 4 s after. The consumer loads the model before it connects, so a replay started during the load finished before any prediction was made, and the Live tab showed nothing. Run selection is unchanged. A retrain against a throwaway server reproduced all 30 seeded runs' params and metrics exactly, and `rul_predictions.csv` came out byte-identical.
-- Commit: (this commit)
+- Commit: af91d77
 
 ## [2026-09-23] Use 127.0.0.1 instead of localhost for local services
 - Choice: the MLflow tracking URI (in `predict_model.py` and the training scripts, overridable with `MLFLOW_TRACKING_URI`), the MQTT broker host and the dashboard's Live-tab URL all default to `127.0.0.1`.
 - Alternatives considered: keep `localhost`; make the MLflow server listen on IPv6 as well.
 - Reasoning: the MLflow server listens on IPv4 only, and on this machine `localhost` tries `::1` first and stalls 2 s per request (measured: 2.03 s vs 0.003 s). The env override also lets the reproducibility check retrain against a throwaway server without touching `mlflow.db`.
-- Commit: (this commit)
+- Commit: af91d77
 
 ## [2026-09-23] Consumer readiness topic
 - Choice: the consumer publishes a retained `online` status (pid, model run, timestamp) on `pm/fd001/consumer/status` once its model is loaded and its subscriptions are acknowledged. A last-will and a clean stop set it `offline`. The producer refuses to replay unless it is `online`, and `run_all.py` waits for it.
 - Alternatives considered: a fixed sleep; checking only that the consumer process is alive; an HTTP health endpoint on the consumer.
 - Reasoning: "process alive" isn't "ready to score": the lost replay happened while the consumer process was up but still loading its model. A retained MQTT status fits the existing retained-topic design, needs no extra port, and the last-will keeps it honest after a crash.
-- Commit: (this commit)
+- Commit: af91d77
 
 ## [2026-09-23] Orchestrate the streaming stack with a Python script, not docker compose
 - Choice: `src/streaming/run_all.py` starts broker, MLflow, consumer, gateway and dashboard in order, with a readiness check each. It prefixes their output and also writes `logs/<service>.log`, and one Ctrl+C stops what it started. Compose still runs only the broker.
 - Alternatives considered: compose services for the consumer, gateway and dashboard; per-service log files only; interleaved console output only.
 - Reasoning: those services run in the host conda env against the host-local `mlflow.db`/`mlartifacts`, and `requirements.txt` is conda `file://` paths that won't install in an image. The labelled console is for watching a run live, and the per-service files are for diagnosing one hop afterwards.
-- Commit: (this commit)
+- Commit: af91d77
