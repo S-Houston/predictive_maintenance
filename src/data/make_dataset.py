@@ -5,6 +5,8 @@ This script loads the raw CMAPSS FD001 datasets (train and test) from .txt,
 applies standard column names, and saves CSVs into:
 - data/processed/ (raw converted CSVs)
 - data/cleaned/   (ready-to-use cleaned CSVs)
+It also converts the test-set ground truth RUL_FD001.txt to
+data/processed/rul_FD001.csv.
 """
 
 import pandas as pd
@@ -65,6 +67,15 @@ def main():
         # Save to cleaned folder
         cleaned_path = cleaned_dir / f"{name}_FD001_cleaned.csv"
         save_csv(df, cleaned_path)
+
+    # Ground-truth RUL at the last observed cycle of each test unit
+    # (row i corresponds to unit i + 1)
+    rul_path = raw_dir / "RUL_FD001.txt"
+    if rul_path.exists():
+        rul_df = pd.read_csv(rul_path, sep=r"\s+", header=None, names=["RUL"])
+        save_csv(rul_df, processed_dir / "rul_FD001.csv")
+    else:
+        print(f"Skipped true RUL: {rul_path} not found")
 
 
 if __name__ == "__main__":

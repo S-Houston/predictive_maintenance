@@ -79,6 +79,25 @@ def classify_risk(rul: float) -> str:
         return "Medium"
     return "Low"
 
+def evaluate_against_truth(rul_df: pd.DataFrame, labeled_df: pd.DataFrame) -> dict:
+    """
+    Scores predictions at each unit's last observed cycle against the true RUL
+    (the standard CMAPSS test evaluation). labeled_df must carry the true RUL
+    per row, i.e. test labels generated with the RUL_FD001 offset.
+    """
+    truth = labeled_df[["unit", "time_in_cycles", "RUL"]].rename(columns={"RUL": "RUL_true"})
+    merged = rul_df.merge(truth, on=["unit", "time_in_cycles"])
+    last = merged.sort_values("time_in_cycles").groupby("unit").tail(1)
+    errors = last["RUL"] - last["RUL_true"]
+    ss_res = (errors ** 2).sum()
+    ss_tot = ((last["RUL_true"] - last["RUL_true"].mean()) ** 2).sum()
+    return {
+        "test_MAE": float(errors.abs().mean()),
+        "test_RMSE": float(np.sqrt((errors ** 2).mean())),
+        "test_R2": float(1 - ss_res / ss_tot),
+        "test_units": int(len(last)),
+    }
+
 def main():
     best_run = get_best_training_run()
     print(f"Best overall run: {best_run}")
@@ -114,9 +133,15 @@ def main():
     rul_preds = model.predict(X_test)
     rul_df = pd.DataFrame({
         "unit": test_df["unit"],
+        "time_in_cycles": test_df["time_in_cycles"],
         "RUL": np.round(rul_preds, 2)
     })
     rul_df["risk_level"] = rul_df["RUL"].apply(classify_risk)
+
+    # Evaluate against ground truth (last observed cycle per unit)
+    labeled_path = Path("data/cleaned/test_FD001_labeled.csv")
+    test_metrics = evaluate_against_truth(rul_df, pd.read_csv(labeled_path))
+    print(f"Test-set evaluation (last cycle vs RUL_FD001): {test_metrics}")
 
     # Save predictions
     output_path = Path("data/processed/rul_predictions.csv")
@@ -132,6 +157,8 @@ def main():
         # Optionally log aggregated metrics
         mlflow.log_metric("mean_RUL", rul_df["RUL"].mean())
         mlflow.log_metric("high_risk_count", (rul_df["risk_level"] == "High").sum())
+        for name, value in test_metrics.items():
+            mlflow.log_metric(name, value)
         # Log predictions CSV as artifact
         mlflow.log_artifact(str(output_path))
         print(f"Inference logged in MLflow under run ID: {run.info.run_id}")

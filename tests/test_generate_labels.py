@@ -64,3 +64,40 @@ def test_generate_failure_labels_basic(tmp_path):
 
     expected_labels = [0, 1, 1, 1, 1]
     assert df_out['failure_binary'].tolist() == expected_labels
+
+
+def test_generate_failure_labels_with_true_rul(tmp_path):
+    """
+    For truncated (test) series, RUL at the last observed cycle must equal the
+    ground-truth value, and earlier cycles count up from there.
+    """
+    sample_data = pd.DataFrame({
+        'unit': [1, 1, 1, 2, 2],
+        'time_in_cycles': [1, 2, 3, 1, 2],
+    })
+    input_csv = tmp_path / "input.csv"
+    output_csv = tmp_path / "output.csv"
+    true_rul_csv = tmp_path / "rul.csv"
+    sample_data.to_csv(input_csv, index=False)
+    pd.DataFrame({'RUL': [50, 5]}).to_csv(true_rul_csv, index=False)
+
+    df_out = generate_failure_labels(str(input_csv), str(output_csv),
+                                     failure_threshold=10,
+                                     true_rul_path=str(true_rul_csv))
+
+    assert df_out['RUL'].tolist() == [52, 51, 50, 6, 5]
+    last_rul = df_out.groupby('unit')['RUL'].last().tolist()
+    assert last_rul == [50, 5]
+    assert df_out['failure_binary'].tolist() == [0, 0, 0, 1, 1]
+
+
+def test_generate_failure_labels_true_rul_unit_mismatch(tmp_path):
+    """A truth file that doesn't match the number of units is rejected."""
+    input_csv = tmp_path / "input.csv"
+    true_rul_csv = tmp_path / "rul.csv"
+    pd.DataFrame({'unit': [1, 2], 'time_in_cycles': [1, 1]}).to_csv(input_csv, index=False)
+    pd.DataFrame({'RUL': [50]}).to_csv(true_rul_csv, index=False)
+
+    with pytest.raises(ValueError):
+        generate_failure_labels(str(input_csv), str(tmp_path / "out.csv"),
+                                true_rul_path=str(true_rul_csv))

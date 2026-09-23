@@ -59,17 +59,23 @@ def load_rul_predictions(path):
         return None
 
 @st.cache_data
-def load_true_rul_labels(possible_paths):
-    for p in possible_paths:
-        path = Path(p)
-        if path.exists():
-            df = pd.read_csv(path)
-            if {"unit", "RUL"}.issubset(df.columns):
-                return df[["unit", "RUL"]].drop_duplicates()
+def load_true_rul_labels(path):
+    """True RUL at each test unit's last observed cycle (labels include the RUL_FD001 offset)."""
+    path = Path(path)
+    if path.exists():
+        df = pd.read_csv(path)
+        if {"unit", "time_in_cycles", "RUL"}.issubset(df.columns):
+            return latest_per_unit(df)[["unit", "RUL"]]
     st.info("True RUL labels not found. Model performance comparison will not be available.")
     return None
 
 # -------------------- Helper Functions --------------------
+
+def latest_per_unit(df):
+    """One row per unit: the most recent observed cycle (the unit's current state)."""
+    if "time_in_cycles" in df.columns:
+        df = df.sort_values(["unit", "time_in_cycles"])
+    return df.groupby("unit").tail(1).reset_index(drop=True)
 
 def classify_risk(rul, high_threshold, medium_threshold):
     if rul < high_threshold:
@@ -261,6 +267,15 @@ def render_rul_predictions_tab(rul_df, true_rul_df, high_risk_threshold, alert_e
         st.warning("No overlapping units found between predictions and true RUL data.")
         return
     merged["error"] = (merged["RUL_true"] - merged["RUL_pred"]).abs()
+
+    st.subheader("Test-set Performance")
+    rmse = (merged["error"] ** 2).mean() ** 0.5
+    m1, m2, m3 = st.columns(3)
+    m1.metric("MAE", f"{merged['error'].mean():.2f} cycles")
+    m2.metric("RMSE", f"{rmse:.2f} cycles")
+    m3.metric("Units evaluated", f"{len(merged)}")
+    st.caption("Predicted RUL at each unit's last observed cycle vs the ground truth in RUL_FD001.")
+
     unit_list = sorted(merged["unit"].unique())
 
     selected_unit_comp = st.selectbox("Select a Unit for Comparison", unit_list, key="rul_comp_unit")
@@ -300,8 +315,7 @@ def render_commercial_analysis_tab(rul_df):
         st.warning("RUL prediction data required for commercial analysis.")
         return
 
-    # ✅ Fix: use the lowest RUL per unit (latest state), not first occurrence
-    analysis_df = rul_df.loc[rul_df.groupby("unit")["RUL"].idxmin()].copy()
+    analysis_df = rul_df.copy()
 
     def calculate_cost(rul, risk):
         if risk == "High":
@@ -360,7 +374,7 @@ def main():
 
     FEATURES_PATH = "data/features/train_FD001_features.csv"
     PREDICTIONS_PATH = "data/processed/rul_predictions.csv"
-    TRUE_RUL_PATHS = ["data/cleaned/train_FD001_labeled.csv", "data/cleaned/test_FD001_labeled.csv"]
+    TRUE_RUL_PATH = "data/cleaned/test_FD001_labeled.csv"
     FAILURE_THRESHOLD = 30
     HIGH_RISK_THRESHOLD = 30
     MEDIUM_RISK_THRESHOLD = 100
@@ -380,7 +394,7 @@ def main():
 
     df = load_features(FEATURES_PATH)
     rul_df = load_rul_predictions(PREDICTIONS_PATH)
-    true_rul_df = load_true_rul_labels(TRUE_RUL_PATHS)
+    true_rul_df = load_true_rul_labels(TRUE_RUL_PATH)
 
     if df is None:
         st.stop()
@@ -388,8 +402,11 @@ def main():
     df["max_cycle"] = df.groupby("unit")["time_in_cycles"].transform("max")
     df["failure_zone"] = df["time_in_cycles"] >= (df["max_cycle"] - FAILURE_THRESHOLD)
 
-    if rul_df is not None and "risk_level" not in rul_df.columns:
-        rul_df["risk_level"] = rul_df["RUL"].apply(classify_risk, args=(HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD))
+    if rul_df is not None:
+        if "risk_level" not in rul_df.columns:
+            rul_df["risk_level"] = rul_df["RUL"].apply(classify_risk, args=(HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD))
+        # Predictions cover every test cycle; the dashboard reports each unit's current state
+        rul_df = latest_per_unit(rul_df)
 
     tabs = st.tabs(["Summary", "Overview", "Unit Analysis", "RUL Predictions", "Commercial Analysis"])
     with tabs[0]:

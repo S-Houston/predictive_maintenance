@@ -17,6 +17,7 @@ logging.basicConfig(level=logging.INFO)
 
 def main(train_input='data/cleaned/train_FD001_cleaned.csv',
          test_input='data/cleaned/test_FD001_cleaned.csv',
+         test_true_rul='data/processed/rul_FD001.csv',
          failure_threshold=30):
     
     # Paths for intermediate and output files
@@ -25,9 +26,11 @@ def main(train_input='data/cleaned/train_FD001_cleaned.csv',
     test_labeled = 'data/cleaned/test_FD001_labeled.csv'
     test_features = 'data/features/test_FD001_features.csv'
 
-    # Generate failure labels
+    # Generate failure labels. Train engines run to failure; test series are
+    # truncated, so their RUL is offset by the ground truth in RUL_FD001.
     generate_failure_labels(train_input, train_labeled, failure_threshold)
-    generate_failure_labels(test_input, test_labeled, failure_threshold)
+    generate_failure_labels(test_input, test_labeled, failure_threshold,
+                            true_rul_path=test_true_rul)
 
     # Load labeled data
     df_train = pd.read_csv(train_labeled)

@@ -47,7 +47,7 @@ class PredictionResponse(BaseModel):
 # Helper Functions
 def load_predictions(path: Path) -> pd.DataFrame:
     """
-    Loads predictions from CSV and returns a DataFrame.
+    Loads predictions from CSV and returns one row per unit (latest cycle).
     Uses risk_level from CSV if available, otherwise computes it.
     """
     if not path.exists():
@@ -70,7 +70,12 @@ def load_predictions(path: Path) -> pd.DataFrame:
                 return "Medium"
             return "Low"
         df["risk_level"] = df["RUL"].apply(classify_risk)
-    
+
+    # Predictions cover every test cycle; serve each unit's latest (current) prediction
+    if "time_in_cycles" in df.columns:
+        df = df.sort_values(["unit", "time_in_cycles"])
+    df = df.groupby("unit").tail(1).reset_index(drop=True)
+
     return df
 
 # API Routes
