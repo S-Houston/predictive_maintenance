@@ -170,6 +170,13 @@ class StateStore:
         self.set_meta("current_session", session_id)
         return True
 
+    def session_info(self, session_id):
+        """The producer's control message for a session, or {} if unknown."""
+        row = self.conn.execute(
+            "SELECT info_json FROM sessions WHERE session_id = ?",
+            (session_id,)).fetchone()
+        return json.loads(row["info_json"]) if row else {}
+
     # --- readings / engine state -----------------------------------------
 
     def insert_reading(self, session_id, record, received_at):

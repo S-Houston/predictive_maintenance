@@ -102,8 +102,12 @@ def evaluate_against_truth(rul_df: pd.DataFrame, labeled_df: pd.DataFrame) -> di
         "test_units": int(len(last)),
     }
 
-def main():
-    best_run = get_best_training_run()
+def load_best_model(metric=metric_to_optimise):
+    """
+    Loads the best model across the training experiments.
+    Returns (model, best_run) where best_run is get_best_training_run()'s dict.
+    """
+    best_run = get_best_training_run(metric)
     print(f"Best overall run: {best_run}")
 
     # Determine model type from experiment name (optional, for loading)
@@ -121,12 +125,16 @@ def main():
     model_uri = f"runs:/{best_run['run_id']}/{model_name}"
     print(f"Loading model from: {model_uri}")
 
-    model = model_loader(model_uri)
+    return model_loader(model_uri), best_run
 
-    # Load train data to get features
-    train_path = Path("data/features/train_FD001_features.csv")
-    train_df = pd.read_csv(train_path)
-    feature_cols = [col for col in train_df.columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
+def feature_columns(train_path=Path("data/features/train_FD001_features.csv")):
+    """Model input columns, in training order, from the train features header."""
+    columns = pd.read_csv(train_path, nrows=0).columns
+    return [col for col in columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
+
+def main():
+    model, best_run = load_best_model()
+    feature_cols = feature_columns()
 
     # Load test data
     test_path = Path("data/features/test_FD001_features.csv")
