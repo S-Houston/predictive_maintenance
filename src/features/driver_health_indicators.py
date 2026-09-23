@@ -15,6 +15,14 @@ from features.generate_failure_labels import generate_failure_labels
 
 logging.basicConfig(level=logging.INFO)
 
+# Informative sensors used for health indicators (also imported by the
+# streaming consumer, so batch and stream engineer the same features)
+SENSOR_COLS = [
+    'sensor_2', 'sensor_3', 'sensor_4', 'sensor_6', 'sensor_7', 'sensor_8',
+    'sensor_9', 'sensor_11', 'sensor_12', 'sensor_13', 'sensor_14',
+    'sensor_15', 'sensor_17', 'sensor_20', 'sensor_21'
+]
+
 def main(train_input='data/cleaned/train_FD001_cleaned.csv',
          test_input='data/cleaned/test_FD001_cleaned.csv',
          test_true_rul='data/processed/rul_FD001.csv',
@@ -36,15 +44,9 @@ def main(train_input='data/cleaned/train_FD001_cleaned.csv',
     df_train = pd.read_csv(train_labeled)
     df_test = pd.read_csv(test_labeled)
 
-    sensor_cols = [
-        'sensor_2', 'sensor_3', 'sensor_4', 'sensor_6', 'sensor_7', 'sensor_8',
-        'sensor_9', 'sensor_11', 'sensor_12', 'sensor_13', 'sensor_14',
-        'sensor_15', 'sensor_17', 'sensor_20', 'sensor_21'
-    ]
-
     # Apply health indicators
-    df_train_features = engineer_health_indicators(df_train, sensor_cols)
-    df_test_features = engineer_health_indicators(df_test, sensor_cols)
+    df_train_features = engineer_health_indicators(df_train, SENSOR_COLS)
+    df_test_features = engineer_health_indicators(df_test, SENSOR_COLS)
 
     # Ensure output folders exist
     os.makedirs(os.path.dirname(train_features), exist_ok=True)
