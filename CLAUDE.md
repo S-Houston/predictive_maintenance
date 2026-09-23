@@ -72,6 +72,11 @@ The stages are separate scripts that hand data to each other through CSV files o
 
 The risk thresholds (30/100) and the failure threshold (30) are repeated in several files. Keep them consistent.
 
+## Conventions
+
+- `DECISIONS.md` at the repo root is the project's decision log. After any plan is approved and implemented, add an entry to it in the same commit as the change, before considering the task complete. Keep entries short: it's a decision log, not a design doc.
+- When writing a plan in plan mode, always include a short "Why this approach" paragraph near the top, even for small changes, not just a list of what will be done.
+
 ## Known state
 
 - `mlflow.db` (SQLite backend) is local. Older runs keep their artifacts in `mlruns/`, and runs logged through `mlflow ui` store theirs in `mlartifacts/` (git-ignored). `.env` exists at the root.
