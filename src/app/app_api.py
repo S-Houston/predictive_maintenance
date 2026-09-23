@@ -24,12 +24,19 @@ import pandas as pd
 from pathlib import Path
 from typing import List
 
+from .stream_gateway import lifespan as stream_lifespan
+from .stream_gateway import router as stream_router
+
 # Initialise FastAPI application
 app = FastAPI(
     title="Predictive Maintenance API",
     description="API for engine health monitoring and RUL predictions",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=stream_lifespan
 )
+
+# Live streaming routes (/live, /ws/live, /stream/*); see stream_gateway.py
+app.include_router(stream_router)
 
 # Configuration paths and constants
 FEATURES_PATH = Path("data/features/train_FD001_features.csv")

@@ -15,7 +15,9 @@ to support predictive maintenance. Features include:
 """
 
 # Import necessary libraries
+import os
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -367,6 +369,16 @@ def render_commercial_analysis_tab(rul_df):
     fig.update_layout(xaxis_title="Unit", yaxis_title="Estimated Cost (£)")
     st.plotly_chart(fig, use_container_width=True)
 
+def render_live_tab(live_url):
+    st.header("Live Stream")
+    st.caption(
+        "Predictions pushed over WebSocket as the streaming consumer scores "
+        "each engine cycle. This panel updates by itself; the other tabs "
+        "show the batch predictions. Requires the MQTT broker, consumer and "
+        "API to be running, then start a replay with the producer."
+    )
+    components.iframe(live_url, height=900, scrolling=True)
+
 # -------------------- Main Application --------------------
 
 def main():
@@ -378,6 +390,7 @@ def main():
     FAILURE_THRESHOLD = 30
     HIGH_RISK_THRESHOLD = 30
     MEDIUM_RISK_THRESHOLD = 100
+    LIVE_URL = os.getenv("PM_LIVE_URL", "http://localhost:8000/live")
 
     RISK_COLOR_MAP = {"High": "#d9534f", "Medium": "#f0ad4e", "Low": "#5cb85c"}
     ALERT_EMOJIS = {"High": "🔴 High", "Medium": "🟠 Medium", "Low": "🟢 Low"}
@@ -408,7 +421,7 @@ def main():
         # Predictions cover every test cycle; the dashboard reports each unit's current state
         rul_df = latest_per_unit(rul_df)
 
-    tabs = st.tabs(["Summary", "Overview", "Unit Analysis", "RUL Predictions", "Commercial Analysis"])
+    tabs = st.tabs(["Summary", "Overview", "Unit Analysis", "RUL Predictions", "Commercial Analysis", "Live"])
     with tabs[0]:
         render_summary_tab(rul_df, RISK_COLOR_MAP, HIGH_RISK_THRESHOLD, MEDIUM_RISK_THRESHOLD)
     with tabs[1]:
@@ -419,6 +432,8 @@ def main():
         render_rul_predictions_tab(rul_df, true_rul_df, HIGH_RISK_THRESHOLD, ALERT_EMOJIS)
     with tabs[4]:
         render_commercial_analysis_tab(rul_df)
+    with tabs[5]:
+        render_live_tab(LIVE_URL)
 
 if __name__ == "__main__":
     main()
