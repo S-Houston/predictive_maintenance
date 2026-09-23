@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, max_error
 import mlflow
 import mlflow.lightgbm
@@ -66,7 +66,7 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
 
 def main():
     mlflow.set_tracking_uri("http://localhost:5000")
-    experiment_name = "FD001 RUL LightGBM Hyperparam Tuning"
+    experiment_name = "FD001 RUL LightGBM Hyperparam Tuning (unit split)"
     mlflow.set_experiment(experiment_name)
     print(f"Using MLflow experiment: '{experiment_name}'")
     print(f"Tracking URI: {mlflow.get_tracking_uri()}")
@@ -80,7 +80,11 @@ def main():
     X = df[feature_cols].astype(np.float64)
     y = df[target_col]
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Split by engine so no unit's cycles appear in both train and validation
+    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+    train_idx, test_idx = next(splitter.split(X, y, groups=df["unit"]))
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
     # Random hyperparameter search
     param_grid = {

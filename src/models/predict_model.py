@@ -36,10 +36,12 @@ mlflow.set_tracking_uri("http://localhost:5000")
 experiment_name = "FD001 RUL Inference"
 metric_to_optimise = "RMSE"
 
+# Only experiments validated on a unit-level (grouped) split; the earlier
+# experiments without the suffix used a leaky random row split.
 training_experiments = [
-    "FD001 RUL Hyperparam Tuning",             
-    "FD001 RUL XGBoost Hyperparam Tuning",
-    "FD001 RUL LightGBM Hyperparam Tuning"
+    "FD001 RUL Hyperparam Tuning (unit split)",
+    "FD001 RUL XGBoost Hyperparam Tuning (unit split)",
+    "FD001 RUL LightGBM Hyperparam Tuning (unit split)"
 ]
 
 # Create or get the experiment
@@ -112,7 +114,7 @@ def main():
     else:
         # Default to sklearn (assumed RandomForest or baseline)
         model_loader = mlflow.sklearn.load_model
-        model_name = "model"
+        model_name = "random_forest_model"  # artifact name used in train_model.py
 
     model_uri = f"runs:/{best_run['run_id']}/{model_name}"
     print(f"Loading model from: {model_uri}")
