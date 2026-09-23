@@ -1,0 +1,14 @@
+# MQTT broker for the streaming simulation: docker compose up -d
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: pm-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
