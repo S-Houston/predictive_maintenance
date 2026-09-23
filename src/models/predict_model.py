@@ -36,12 +36,14 @@ mlflow.set_tracking_uri("http://localhost:5000")
 experiment_name = "FD001 RUL Inference"
 metric_to_optimise = "RMSE"
 
-# Only experiments validated on a unit-level (grouped) split; the earlier
-# experiments without the suffix used a leaky random row split.
+# Only experiments with a unit-level (grouped) split and a seeded hyperparameter
+# search, so the selected model can be reproduced by retraining. Earlier
+# experiments used a leaky random row split (no suffix) or an unseeded search
+# ("(unit split)").
 training_experiments = [
-    "FD001 RUL Hyperparam Tuning (unit split)",
-    "FD001 RUL XGBoost Hyperparam Tuning (unit split)",
-    "FD001 RUL LightGBM Hyperparam Tuning (unit split)"
+    "FD001 RUL Hyperparam Tuning (unit split, seeded)",
+    "FD001 RUL XGBoost Hyperparam Tuning (unit split, seeded)",
+    "FD001 RUL LightGBM Hyperparam Tuning (unit split, seeded)"
 ]
 
 # Create or get the experiment

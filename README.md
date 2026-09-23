@@ -95,17 +95,17 @@ flowchart TD
 
 Experiments are tracked using MLflow. Key experiments include:
 
-FD001 RUL LightGBM Hyperparam Tuning (unit split)
+FD001 RUL LightGBM Hyperparam Tuning (unit split, seeded)
 
-FD001 RUL XGBoost Hyperparam Tuning (unit split)
+FD001 RUL XGBoost Hyperparam Tuning (unit split, seeded)
 
-FD001 RUL Hyperparam Tuning (unit split) (Random Forest baseline)
+FD001 RUL Hyperparam Tuning (unit split, seeded) (Random Forest baseline)
 
 FD001 RUL Inference (test-set evaluation of the selected model)
 
 All training scripts log metrics, parameters, feature importance, and models to MLflow.
 
-The older experiments without the "(unit split)" suffix used a random row-level split and are kept for history only; their metrics are not comparable (see Evaluation Methodology).
+Older experiments are kept for history only. The ones with no suffix used a random row-level split, so their metrics are not comparable (see Evaluation Methodology). The "(unit split)" ones used an unseeded hyperparameter search and cannot be reproduced exactly.
 
 --------
 
@@ -158,7 +158,10 @@ Evaluates the predictions against the ground truth (see below) and logs test_MAE
 Each training script holds out 20% of the training data to compare hyperparameters and select the best model.
 
 - **Previously:** the hold-out was a random 80/20 split of *rows* (`train_test_split`). Each row is one cycle of one engine, so neighbouring cycles of the same engine ended up in both the training and validation sets. The per-engine baseline features (`<sensor>_baseline`) made this worse, because they act as a fingerprint that identifies the engine. The model could effectively interpolate within an engine it had already seen, and the validation scores were far too optimistic (best: XGBoost RMSE 11.6, MAE 7.6, R² 0.97).
-- **Now:** the hold-out is split by engine (`GroupShuffleSplit` grouped on `unit`), so validation engines are never seen during training. This matches the real use case, which is predicting RUL for an engine the model has never seen. Runs using this split are logged to the experiments with the "(unit split)" suffix, and `predict_model.py` selects only from those.
+- **Now:** the hold-out is split by engine (`GroupShuffleSplit` grouped on `unit`), so validation engines are never seen during training. This matches the real use case, which is predicting RUL for an engine the model has never seen. Runs using this split are logged to the experiments with the "(unit split, seeded)" suffix, and `predict_model.py` selects only from those.
+
+### Reproducibility: seeded hyperparameter search
+Each training script defines a single `SEED = 42`. It drives the grouped validation split, the random hyperparameter search (a local `random.Random(SEED)`, in place of the global unseeded `random.choice` used before) and each model's `random_state`. Retraining from scratch therefore produces the same runs, the same selected model and the same metrics, and each run logs `search_seed` to MLflow. Changing `SEED` also changes the validation split. `tests/test_reproducibility.py` fails if any unseeded random call or splitter without `random_state` is added under `src/`.
 
 ### Test-set evaluation: ground truth from RUL_FD001
 The CMAPSS test engines are cut off at an unknown point before failure, and `RUL_FD001.txt` gives the true RUL remaining at each engine's last observed cycle. Test labels are therefore `RUL = (last observed cycle − current cycle) + RUL_FD001[unit]`. The headline test metric follows the standard CMAPSS protocol: each engine's prediction at its last observed cycle is compared with RUL_FD001, across 100 engines.
@@ -166,11 +169,14 @@ The CMAPSS test engines are cut off at an unknown point before failure, and `RUL
 (Before this fix, test labels were computed as if each engine failed at its last observed cycle, and the dashboard compared predictions against the RUL of a *training* engine with the same unit number.)
 
 ### Current results (FD001)
+Each row is the best run by validation RMSE (the metric `predict_model.py` selects on) from the seeded search (`SEED = 42`).
+
 | Model | Validation (unit split, all cycles) | Test (last cycle vs RUL_FD001) |
 |---|---|---|
-| Random Forest (selected) | RMSE 28.2, MAE 19.8, R² 0.82 | **RMSE 24.4, MAE 18.2, R² 0.66** |
-| XGBoost | RMSE 29.3, MAE 20.9, R² 0.80 | — |
-| LightGBM | RMSE 30.2, MAE 21.6, R² 0.79 | — |
+| Random Forest (selected) | RMSE 28.2, MAE 19.8, R² 0.82 | **RMSE 25.0, MAE 18.3, R² 0.64** |
+| XGBoost | RMSE 29.1, MAE 21.6, R² 0.80 | — |
+| LightGBM | RMSE 30.9, MAE 22.0, R² 0.78 | — |
+| *Previous Random Forest (unit split, unseeded search)* | *RMSE 28.2* | *RMSE 24.4, MAE 18.2, R² 0.66 (not reproducible)* |
 | *Previous XGBoost (random split)* | *RMSE 11.6, MAE 7.6, R² 0.97 (leaky)* | *RMSE 27.3, MAE 19.9* |
 
 Validation and test numbers measure different things. Validation covers every cycle of the held-out engines, including early-life cycles where RUL is large and hard to predict, while the test figure covers only the last observed cycle. RUL targets are not capped, so these results are not directly comparable with published FD001 results that clip RUL at about 125 cycles.
