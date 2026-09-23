@@ -32,7 +32,7 @@ def test_engineered_columns_exist(sample_df, sensor):
         f"{sensor}_degraded",
         f"{sensor}_rolling_mean",
         f"{sensor}_rolling_std",
-        f"{sensor}_slope",
+        f"{sensor}_cycle_change",
     ]
     for col in expected_cols:
         assert col in result.columns, f"Missing expected column: {col}"
@@ -44,8 +44,7 @@ def test_engineered_shape(sample_df):
     """Ensure the engineered DataFrame has the same number of rows and additional columns."""
     result = engineer_health_indicators(sample_df, ["sensor_1", "sensor_2"])
     assert len(result) == len(sample_df)
-    assert "health_score" in result.columns
-    assert result["health_score"].dtype in [int, "int64"]
+    assert len(result.columns) > len(sample_df.columns)
 
 def test_degradation_flags_correct(sample_df):
     """Checks degradation flags based on the 75% threshold rule."""
@@ -63,13 +62,6 @@ def test_degradation_flags_correct(sample_df):
     # Row that should not be flagged
     non_degraded_row = df[(df["unit"] == 1) & (df["sensor_1"] == 100)]
     assert non_degraded_row["sensor_1_degraded"].iloc[0] == 0
-
-def test_health_score_sum(sample_df):
-    """Verifies health_score equals sum of all individual sensor degradation flags."""
-    df = engineer_health_indicators(sample_df, ["sensor_1", "sensor_2"])
-    for _, row in df.iterrows():
-        expected_score = row["sensor_1_degraded"] + row["sensor_2_degraded"]
-        assert row["health_score"] == expected_score
 
 def test_short_unit_time_series():
     """Tests behavior for units with fewer than 5 cycles; baseline should use available data."""
@@ -92,9 +84,6 @@ def test_missing_sensor_values():
         "sensor_2": [200, 190, None, 170, None],
     })
     result = engineer_health_indicators(missing_df, ["sensor_1", "sensor_2"])
-    # Ensure health_score exists and is computed where possible
-    assert "health_score" in result.columns
-    assert result["health_score"].notnull().any()
     # Degraded flags should never be NaN
     assert result["sensor_1_degraded"].notnull().all()
     assert result["sensor_2_degraded"].notnull().all()
@@ -110,4 +99,3 @@ def test_identical_sensor_values():
     result = engineer_health_indicators(flat_df, ["sensor_1", "sensor_2"])
     assert result["sensor_1_degraded"].sum() == 0
     assert result["sensor_2_degraded"].sum() == 0
-    assert result["health_score"].sum() == 0

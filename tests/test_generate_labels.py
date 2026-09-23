@@ -13,7 +13,7 @@ def test_generate_failure_labels_basic(tmp_path):
     # Create sample data matching your columns (minimal for test)
     sample_data = pd.DataFrame({
         'unit': [1, 1, 1, 2, 2],
-        'time': [10, 20, 30, 5, 15],
+        'time_in_cycles': [10, 20, 30, 5, 15],
         'op_setting_1': [0, 0, 0, 0, 0],  # dummy values
         'op_setting_2': [0, 0, 0, 0, 0],
         'sensor_2': [0, 0, 0, 0, 0],
@@ -60,5 +60,7 @@ def test_generate_failure_labels_basic(tmp_path):
     # For unit 2: max time = 15
     # times: 5 -> RUL=10 -> label=1, 15 -> RUL=0 -> label=1
     
+    assert df_out['RUL'].tolist() == [20, 10, 0, 10, 0]
+
     expected_labels = [0, 1, 1, 1, 1]
     assert df_out['failure_binary'].tolist() == expected_labels
