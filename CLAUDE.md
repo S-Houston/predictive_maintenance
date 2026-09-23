@@ -32,6 +32,12 @@ python src/models/log_top_model.py          # compare best run per experiment
 # Serving
 uvicorn src.app.app_api:app --reload        # Swagger at http://127.0.0.1:8000/docs
 streamlit run src/app/app_dashboard.py
+
+# Streaming simulation (needs Docker Desktop, the MLflow server and the API above)
+docker compose up -d                                             # Mosquitto on :1883
+PYTHONPATH=src python src/streaming/consumer.py                  # leave running
+PYTHONPATH=src python src/streaming/producer.py --interval 0.2   # one replay session
+# watch the dashboard's Live tab, or http://127.0.0.1:8000/live
 ```
 
 The README's usage section says `scripts/...` and `app/...`. Those paths are out of date; the code lives under `src/`.
@@ -55,6 +61,15 @@ The stages are separate scripts that hand data to each other through CSV files o
    - `src/app/app_api.py` (FastAPI) serves each unit's latest-cycle prediction from `rul_predictions.csv` at `/`, `/predictions` and `/predictions/{unit_id}`. It has a fallback copy of the risk thresholds.
    - `src/app/app_dashboard.py` (Streamlit, `@st.cache_data` loaders) reads the train features, the predictions (reduced to the latest cycle per unit with `latest_per_unit`) and the test labels for the true RUL. Tabs: Summary, Overview, Unit Analysis, RUL Predictions, Commercial Analysis. The Overview and Unit Analysis tabs plot *training* engines, and Unit Analysis mixes them with *test* predictions that share the same unit number (a known issue).
 
+6. **Streaming (`src/streaming/`, `src/app/stream_gateway.py`)**: a real-time simulation built on top of the batch pipeline. It doesn't replace any part of it.
+   - `producer.py` replays `data/raw/test_FD001.txt` as one QoS 1 MQTT message per engine per cycle on `pm/fd001/engine/{unit}/telemetry`. Engines start at seeded offsets (`--stagger`), and each run is a new session announced on the retained `pm/fd001/control/session`.
+   - `consumer.py` feeds messages to `StreamProcessor`, which stores the raw readings in SQLite (`data/stream/stream_state.db`, via `state_store.py`). On each micro-batch, `stream_features.py` reruns the batch `engineer_health_indicators()` over each touched engine's full history. The result is **bitwise identical** to batch; a bounded 5-row buffer would drift by about 1e-9, because pandas' rolling sums accumulate from the start of the series.
+   - Cycles 1-4 are held back and emitted together at cycle 5, since the batch baseline averages the first 5 cycles.
+   - Predictions come from `predict_model.load_best_model()` and are published retained on `.../{unit}/prediction`. MQTT messages are acked only after the SQLite commit.
+   - A new session wipes the other sessions' rows unless the producer ran with `--keep-history`.
+   - `stream_gateway.py` bridges predictions to `/ws/live` and is mounted on `app_api.py` with its lifespan. The Streamlit "Live" tab iframes the `/live` page, so updates arrive without reruns.
+   - `tests/test_stream_*.py` hold the parity tests against batch features and `rul_predictions.csv`. The real-model test skips if MLflow isn't running.
+
 The risk thresholds (30/100) and the failure threshold (30) are repeated in several files. Keep them consistent.
 
 ## Known state
@@ -68,3 +83,6 @@ The risk thresholds (30/100) and the failure threshold (30) are repeated in seve
 - RUL targets are not capped (published FD001 results usually clip at about 125), so metrics aren't directly comparable with the literature.
 - The hyperparameter search samples with replacement, so an iteration can repeat an earlier parameter set (reproducibly).
 - `src/visualization/visualize.py` is empty.
+- Loading the best model through `runs:/` (`load_best_model`) takes about 4 minutes, while downloading the same file directly takes seconds. This affects batch inference, consumer startup and the real-model parity test.
+- The data CSVs differ from in-memory pipeline output by about 1e-12 (CSV float formatting). Compare streamed features with in-memory batch output for exact checks.
+- `app_api.py` imports the gateway relatively (`from .stream_gateway`), so run it as `src.app.app_api`, as documented above.

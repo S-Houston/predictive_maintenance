@@ -257,19 +257,28 @@ class MqttConsumer:
                 log.warning("Skipping malformed message on %s", msg.topic)
         return decoded
 
+    def process_batch(self, msgs):
+        """
+        Applies a batch, then acks and publishes. If handling raises, the
+        transaction is rolled back and nothing is acked, so the broker
+        redelivers the batch.
+        """
+        preds = self.processor.handle(self._decode(msgs))
+        for msg in msgs:  # committed: safe to acknowledge
+            self.client.ack(msg.mid, msg.qos)
+        for p in preds:
+            self.client.publish(
+                config.PREDICTION_TOPIC.format(unit=p["unit"]),
+                json.dumps(p), qos=1, retain=True)
+        return preds
+
     def run_forever(self):
         n_scored = 0
         while True:
             msgs = self.next_batch()
             if not msgs:
                 continue
-            preds = self.processor.handle(self._decode(msgs))
-            for msg in msgs:  # committed: safe to acknowledge
-                self.client.ack(msg.mid, msg.qos)
-            for p in preds:
-                self.client.publish(
-                    config.PREDICTION_TOPIC.format(unit=p["unit"]),
-                    json.dumps(p), qos=1, retain=True)
+            preds = self.process_batch(msgs)
             n_scored += len(preds)
             if preds:
                 log.info("Batch of %d messages -> %d predictions "

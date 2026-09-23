@@ -268,6 +268,13 @@ uvicorn app.app_api:app --reload
 ```python
 streamlit run app/app_dashboard.py
 ```
+### Real-time Streaming Simulation
+Replays the test set as live MQTT telemetry, one reading per engine per cycle. Features and RUL predictions are computed incrementally and pushed to the dashboard's **Live** tab over WebSocket. Start the MLflow server and the API first, then:
+```bash
+docker compose up -d                                             # Mosquitto broker
+PYTHONPATH=src python src/streaming/consumer.py                  # stateful features + inference
+PYTHONPATH=src python src/streaming/producer.py --interval 1.0   # replay (--keep-history, --stagger, --units)
+```
 ### Dependencies
 
 Install dependencies from **requirements.txt**:
