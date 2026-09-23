@@ -22,6 +22,7 @@ flake8 src                               # lint (tox.ini: max-line-length 79, ma
 # Pipeline, in order
 python src/data/make_dataset.py                                  # raw .txt -> data/processed + data/cleaned
 PYTHONPATH=src python src/features/driver_health_indicators.py   # labels + features -> data/features
+python src/backup_mlflow.py              # mlflow.db -> backups/mlflow_<date>_<HHMM>.db (or: make backup-mlflow)
 mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000    # must be running before training/inference
 python src/models/train_model.py            # RandomForest baseline
 python src/models/train_model_xgb.py
@@ -79,7 +80,8 @@ The risk thresholds (30/100) and the failure threshold (30) are repeated in seve
 
 ## Known state
 
-- `mlflow.db` (SQLite backend) is local. Older runs keep their artifacts in `mlruns/`, and runs logged through `mlflow ui` store theirs in `mlartifacts/` (git-ignored). `.env` exists at the root.
+- `mlflow.db` (SQLite backend) is local and was recreated on 2026-09-23 after the original was deleted (see DECISIONS.md). It holds only that day's seeded retrain: experiments 1-3 are the RF, XGBoost and LightGBM `(unit split, seeded)` searches and 4 is `FD001 RUL Inference`, with artifacts in `mlartifacts/1`-`4` (git-ignored). Run `python src/backup_mlflow.py` (or `make backup-mlflow`) before any operation that touches the training pipeline or MLflow store directly. It snapshots `mlflow.db` into the git-ignored `backups/` folder with a timestamped name, and is safe to run while the server is up. `make` isn't installed on the dev machine, so use the Python command there.
+- `mlruns/1`-`4` and `mlartifacts/5`-`8`, `10` are orphaned artifacts from the lost database: model files with no runs, params or metrics. The next new experiment gets ID 5 and will share `mlartifacts/5` with orphans. `mlruns/` folders with 18-digit IDs are the older file-store experiments. Pointing MLflow at `./mlruns` as a file store reports the orphaned integer folders as "Malformed experiment"; that's expected, not corruption. `.env` exists at the root.
 - For a throwaway MLflow server (for example, to check reproducibility without touching `mlflow.db`), pass `--default-artifact-root file:///C:/...`. A bare `C:/...` path is parsed as URI scheme `c` and artifact logging fails.
 - On Windows, set `PYTHONIOENCODING=utf-8` when piping MLflow script output. Otherwise MLflow's emoji run links crash with cp1252 `UnicodeEncodeError`.
 - The `<sensor>_degraded` flags (below 75% of baseline) are 0 on every row of the real data, so they carry no signal.

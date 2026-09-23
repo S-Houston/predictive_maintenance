@@ -97,3 +97,9 @@ Significant project decisions, oldest first. Add new entries at the bottom, in t
 - Alternatives considered: comparing against the features CSV exactly.
 - Reasoning: the CSV differs from in-memory output by about 1e-12 because of float formatting, so an exact CSV comparison would fail for reasons unrelated to streaming.
 - Commit: 52118aa
+
+## [2026-09-23] Recover the lost MLflow database by retraining, and back it up from now on
+- Choice: `mlflow.db` was deleted during troubleshooting by a `del` run against what looked like an empty database but wasn't. No copy existed anywhere on the machine, so a fresh `mlflow.db` was created and the three seeded searches and `predict_model.py` were rerun. From now on the tracking database gets backed up even though it's git-ignored: `python src/backup_mlflow.py` (or `make backup-mlflow`) is a one-command manual snapshot into `backups/`, with no scheduling or retention.
+- Alternatives considered: restoring from a backup (none found on C:, including the Recycle Bin and renamed SQLite files); rebuilding `meta.yaml` files for the orphaned `mlruns/1`-`4` (those folders only ever held artifacts, so it would restore no params or metrics); re-scoring the orphaned models to rebuild metrics.
+- Reasoning: the seeded pipeline made the retrain an exact recovery. Validation RMSE came out RF 28.23, XGBoost 29.08, LightGBM 30.85, RF was selected with test RMSE 24.96, MAE 18.34, R2 0.64, and `rul_predictions.csv` is byte-identical to the pre-loss inference output. History from before the seeded experiments (params and metrics of the row-split and unseeded runs) is lost; only their artifacts remain. Being git-ignored keeps the database out of the repo but doesn't protect it, so it needs its own backup.
+- Commit: none (documentation only; the retrain changed no tracked files)

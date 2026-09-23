@@ -1,4 +1,4 @@
-.PHONY: clean data lint requirements sync_data_to_s3 sync_data_from_s3
+.PHONY: clean data lint requirements sync_data_to_s3 sync_data_from_s3 backup-mlflow
 
 #################################################################################
 # GLOBALS                                                                       #
@@ -37,6 +37,10 @@ clean:
 ## Lint using flake8
 lint:
 	flake8 src
+
+## Copy mlflow.db to backups/ with a timestamp
+backup-mlflow:
+	$(PYTHON_INTERPRETER) src/backup_mlflow.py
 
 ## Upload Data to S3
 sync_data_to_s3:
