@@ -83,7 +83,7 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
 
 def main():
     # --- [MLflow Setup] ---
-    mlflow.set_tracking_uri("http://localhost:5000")
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
     experiment_name = "FD001 RUL Hyperparam Tuning (unit split, seeded)"
     mlflow.set_experiment(experiment_name)
     print(f"Using MLflow experiment: '{experiment_name}'")

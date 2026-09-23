@@ -7,6 +7,7 @@ from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, max_error
 from sklearn.model_selection import GroupShuffleSplit
 import mlflow
+import os
 import mlflow.xgboost
 from mlflow.models import infer_signature
 from pathlib import Path
@@ -69,7 +70,7 @@ def train_and_evaluate(params, X_train, X_test, y_train, y_test, feature_cols):
 
 def main():
     # --- MLflow setup ---
-    mlflow.set_tracking_uri("http://localhost:5000")
+    mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
     experiment_name = "FD001 RUL XGBoost Hyperparam Tuning (unit split, seeded)"
     mlflow.set_experiment(experiment_name)
     print(f"Using MLflow experiment: '{experiment_name}'")

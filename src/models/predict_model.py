@@ -21,6 +21,8 @@ Date: 20-08-2025
 """
 
 # Import necessary libraries
+import os
+
 import mlflow
 import mlflow.lightgbm
 import mlflow.xgboost
@@ -32,7 +34,8 @@ from mlflow.tracking import MlflowClient
 from mlflow import log_artifact, log_metric, start_run
 
 # Config
-mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_tracking_uri(
+    os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
 experiment_name = "FD001 RUL Inference"
 metric_to_optimise = "RMSE"
 
@@ -122,10 +125,29 @@ def load_best_model(metric=metric_to_optimise):
         model_loader = mlflow.sklearn.load_model
         model_name = "random_forest_model"  # artifact name used in train_model.py
 
-    model_uri = f"runs:/{best_run['run_id']}/{model_name}"
+    model_uri = model_uri_for_run(best_run["run_id"], model_name)
     print(f"Loading model from: {model_uri}")
 
     return model_loader(model_uri), best_run
+
+def model_uri_for_run(run_id, model_name):
+    """
+    URI of the model logged by a run. MLflow 3 stores logged models outside
+    the run's artifact folder, so a runs:/ URI first requests a missing run
+    artifact; the server answers 500 and the client's retry backoff adds
+    about 4 minutes before it falls back to the logged model. Loading by
+    models:/<model_id> skips that. runs:/ remains the fallback for runs
+    without a logged model record.
+    """
+    run = mlflow.get_run(run_id)
+    models = mlflow.search_logged_models(
+        experiment_ids=[run.info.experiment_id],
+        filter_string=f"source_run_id = '{run_id}'",
+        output_format="list")
+    for model in models:
+        if model.name == model_name:
+            return f"models:/{model.model_id}"
+    return f"runs:/{run_id}/{model_name}"
 
 def feature_columns(train_path=Path("data/features/train_FD001_features.csv")):
     """Model input columns, in training order, from the train features header."""

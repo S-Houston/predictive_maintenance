@@ -4,6 +4,8 @@ Tests for the WebSocket gateway: the fleet snapshot logic of LiveBridge and
 the streaming routes (without an MQTT broker).
 """
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -71,6 +73,51 @@ def test_broker_events_update_connection_state():
     assert bridge.snapshot()["broker_connected"] is True
 
 
+def test_counters_record_received_events_and_drop_reasons():
+    bridge = gw.LiveBridge()
+    apply_all(bridge, [("pm/fd001/control/session", {"session_id": S2}),
+                       pred(1, 6, 119.0, session=S2),
+                       pred(1, 5, 120.0, session=S2),   # older cycle
+                       pred(2, 9, 90.0, session=S1)])   # stale session
+    bridge.apply(gw.BROKER_EVENT, {"connected": True})  # not counted
+    assert bridge.counters == {"received": 4, "events": 2,
+                               "dropped_older_cycle": 1,
+                               "dropped_stale_session": 1}
+
+
+def test_stats_are_logged_per_interval_only_when_traffic_flowed(caplog):
+    bridge = gw.LiveBridge()
+    start = bridge._stats_logged[0]
+    apply_all(bridge, [pred(1, 5, 120.0)])
+    assert not bridge.log_stats(now=start + 1)         # interval not over
+    assert bridge.log_stats(now=start + gw.STATS_INTERVAL)
+    assert "1 MQTT messages" in caplog.text
+    assert not bridge.log_stats(now=start + 3 * gw.STATS_INTERVAL)  # idle
+
+
+class FailingSocket:
+    async def send_json(self, message):
+        raise RuntimeError("socket gone")
+
+
+class RecordingSocket:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, message):
+        self.sent.append(message)
+
+
+def test_failed_client_is_dropped_and_logged(caplog):
+    bridge = gw.LiveBridge()
+    good, bad = RecordingSocket(), FailingSocket()
+    bridge.clients = {good, bad}
+    asyncio.run(bridge.broadcast({"type": "events", "events": []}))
+    assert bridge.clients == {good} and len(good.sent) == 1
+    assert bridge.counters["send_failures"] == 1
+    assert "failed send" in caplog.text
+
+
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(gw, "bridge", gw.LiveBridge())
@@ -91,6 +138,15 @@ def test_websocket_sends_snapshot_on_connect(client):
 def test_live_page_and_plotly_are_served(client):
     assert "/ws/live" in client.get("/live").text
     assert client.get("/live/plotly.min.js").status_code == 200
+
+
+def test_stream_status_reports_bridge_health(client):
+    gw.bridge.apply(gw.BROKER_EVENT, {"connected": True})
+    gw.bridge.apply(*pred(3, 8, 55.5))
+    status = client.get("/stream/status").json()
+    assert status == {"broker_connected": True, "session_id": S1,
+                      "engines": 1, "clients": 0,
+                      "counters": {"received": 1, "events": 1}}
 
 
 def test_stream_routes_404_without_state(client):

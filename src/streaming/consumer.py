@@ -16,6 +16,11 @@ When every engine of the session has finished, last-cycle predictions are
 scored against RUL_FD001 and logged to the "FD001 RUL Streaming Inference"
 MLflow experiment; test_RMSE should equal the batch inference run's.
 
+Readiness: once the model is loaded and the subscriptions are acknowledged,
+the consumer publishes a retained "online" status (with its pid) on
+pm/fd001/consumer/status; a last-will and a clean stop set it "offline".
+The producer and run_all.py wait on it.
+
 Usage (from the repo root; broker and MLflow server running):
     PYTHONPATH=src python src/streaming/consumer.py
 """
@@ -23,7 +28,10 @@ Usage (from the repo root; broker and MLflow server running):
 import argparse
 import json
 import logging
+import os
 import queue
+import signal
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -47,10 +55,42 @@ log.setLevel(logging.INFO)
 CLIENT_ID = "pm-stream-consumer"
 LABELED_TEST_PATH = "data/cleaned/test_FD001_labeled.csv"
 STREAM_EXPERIMENT = "FD001 RUL Streaming Inference"
+LAG_WARN_SECONDS = 5.0     # producer -> consumer delay worth warning about
+LAG_WARN_EVERY = 10.0      # at most one lag warning per this many seconds
+IDLE_LOG_EVERY = 30.0      # heartbeat while no messages arrive
+
+
+def setup_logging():
+    """
+    Timestamped consumer logs on stdout, flushed line by line even when
+    stdout is a pipe (e.g. under run_all.py), instead of relying on the
+    handler engineer_health_indicators installs on import.
+    """
+    sys.stdout.reconfigure(line_buffering=True)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    log.addHandler(handler)
+    log.propagate = False
 
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def max_lag_seconds(messages, now):
+    """Largest producer->consumer delay among telemetry payloads, or None."""
+    lags = [
+        (now - datetime.fromisoformat(payload["ts"])).total_seconds()
+        for topic, payload in messages
+        if topic.endswith("/telemetry") and payload.get("ts")
+    ]
+    return max(lags) if lags else None
+
+
+def status_payload(state, model_run_id):
+    return json.dumps({"state": state, "pid": os.getpid(),
+                       "model_run_id": model_run_id, "ts": utc_now()})
 
 
 def check_feature_columns(feature_cols):
@@ -208,11 +248,20 @@ class MqttConsumer:
         self.inbox = queue.Queue()
         self.linger = linger
         self.max_batch = max_batch
+        self.stopping = False
+        self.last_lag_warning = float("-inf")
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=client_id, clean_session=False,
                                   manual_ack=True)
+        self.client.will_set(config.CONSUMER_STATUS_TOPIC,
+                             self._status("offline"), qos=1, retain=True)
         self.client.on_connect = self._on_connect
+        self.client.on_subscribe = self._on_subscribe
+        self.client.on_disconnect = self._on_disconnect
         self.client.on_message = lambda c, u, msg: self.inbox.put(msg)
+
+    def _status(self, state):
+        return status_payload(state, self.processor.model_run_id)
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
@@ -221,7 +270,26 @@ class MqttConsumer:
         client.subscribe([(config.SESSION_TOPIC, 1),
                           (config.TELEMETRY_SUB, 1),
                           (config.STATUS_SUB, 1)])
-        log.info("Connected to MQTT broker; subscribed to telemetry")
+        log.info("Connected to MQTT broker at %s:%s (session present: %s)",
+                 config.BROKER_HOST, config.BROKER_PORT,
+                 flags.session_present)
+
+    def _on_subscribe(self, client, userdata, mid, reason_code_list,
+                      properties):
+        failed = [str(rc) for rc in reason_code_list if rc.is_failure]
+        if failed:
+            log.error("Subscription refused by broker: %s", failed)
+            return
+        client.publish(config.CONSUMER_STATUS_TOPIC, self._status("online"),
+                       qos=1, retain=True)
+        log.info("Subscribed to session, telemetry and status topics; "
+                 "published online status (pid %d)", os.getpid())
+
+    def _on_disconnect(self, client, userdata, flags, reason_code,
+                       properties):
+        if not self.stopping:
+            log.warning("Disconnected from MQTT broker (%s); paho will "
+                        "reconnect", reason_code)
 
     def connect(self):
         try:
@@ -263,26 +331,55 @@ class MqttConsumer:
         transaction is rolled back and nothing is acked, so the broker
         redelivers the batch.
         """
-        preds = self.processor.handle(self._decode(msgs))
+        decoded = self._decode(msgs)
+        self._check_lag(decoded)
+        preds = self.processor.handle(decoded)
         for msg in msgs:  # committed: safe to acknowledge
             self.client.ack(msg.mid, msg.qos)
+        failed = []
         for p in preds:
-            self.client.publish(
+            info = self.client.publish(
                 config.PREDICTION_TOPIC.format(unit=p["unit"]),
                 json.dumps(p), qos=1, retain=True)
+            if info.rc != mqtt.MQTT_ERR_SUCCESS:
+                failed.append(info.rc)
+        if failed:
+            log.warning("%d of %d prediction publishes failed (%s)",
+                        len(failed), len(preds),
+                        mqtt.error_string(failed[-1]))
         return preds
+
+    def _check_lag(self, decoded):
+        """Warns (rate-limited) when telemetry arrives long after sending."""
+        lag = max_lag_seconds(decoded, datetime.now(timezone.utc))
+        now = time.monotonic()
+        if (lag is not None and lag > LAG_WARN_SECONDS
+                and now - self.last_lag_warning >= LAG_WARN_EVERY):
+            self.last_lag_warning = now
+            log.warning("Consumer is %.1fs behind the producer; telemetry "
+                        "is queueing at the broker", lag)
+        return lag
 
     def run_forever(self):
         n_scored = 0
+        last_activity = time.monotonic()
         while True:
             msgs = self.next_batch()
             if not msgs:
+                idle = time.monotonic() - last_activity
+                if idle >= IDLE_LOG_EVERY:
+                    log.info("Idle for %.0fs; waiting for telemetry "
+                             "(%d predictions this run)", idle, n_scored)
+                    last_activity = time.monotonic()
                 continue
+            last_activity = time.monotonic()
             preds = self.process_batch(msgs)
             n_scored += len(preds)
             if preds:
-                log.info("Batch of %d messages -> %d predictions "
-                         "(%d this run)", len(msgs), len(preds), n_scored)
+                units = sorted({p["unit"] for p in preds})
+                log.info("Batch of %d messages -> published %d predictions "
+                         "for %d engines (%d this run)", len(msgs),
+                         len(preds), len(units), n_scored)
             self._evaluate()
 
     def _evaluate(self):
@@ -297,8 +394,20 @@ class MqttConsumer:
         log_streaming_run(session_id, proc.model_run_id, metrics, n_preds)
 
     def stop(self):
+        self.stopping = True
+        info = self.client.publish(config.CONSUMER_STATUS_TOPIC,
+                                   self._status("offline"), qos=1,
+                                   retain=True)
+        try:
+            info.wait_for_publish(timeout=5)
+        except (RuntimeError, ValueError):
+            pass  # not connected; the last-will reports offline instead
         self.client.disconnect()
         self.client.loop_stop()
+
+
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
 
 
 def main():
@@ -306,8 +415,17 @@ def main():
     p.add_argument("--db", default=str(config.STATE_DB_PATH),
                    help="SQLite state database")
     args = p.parse_args()
+    setup_logging()
+    # run_all.py stops children with Ctrl+Break (Windows has no SIGTERM to
+    # send to a console process); treat it like Ctrl+C so cleanup runs.
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _interrupt)
 
+    log.info("Loading best model from MLflow at %s",
+             mlflow.get_tracking_uri())
+    started = time.monotonic()
     model, best_run = load_best_model()
+    log.info("Model loaded in %.1fs", time.monotonic() - started)
     feature_cols = feature_columns()
     check_feature_columns(feature_cols)
 

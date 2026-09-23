@@ -34,11 +34,11 @@ python src/models/log_top_model.py          # compare best run per experiment
 uvicorn src.app.app_api:app --reload        # Swagger at http://127.0.0.1:8000/docs
 streamlit run src/app/app_dashboard.py
 
-# Streaming simulation (needs Docker Desktop, the MLflow server and the API above)
-docker compose up -d                                             # Mosquitto on :1883
-PYTHONPATH=src python src/streaming/consumer.py                  # leave running
-PYTHONPATH=src python src/streaming/producer.py --interval 0.2   # one replay session
-# watch the dashboard's Live tab, or http://127.0.0.1:8000/live
+# Streaming simulation (needs Docker Desktop)
+PYTHONPATH=src python src/streaming/run_all.py                   # broker, MLflow, consumer, API, dashboard; Ctrl+C stops all
+PYTHONPATH=src python src/streaming/producer.py --interval 0.2   # one replay session (refuses unless the consumer is online)
+# watch the dashboard's Live tab, or http://127.0.0.1:8000/live; logs in logs/<service>.log
+# by hand instead of run_all: docker compose up -d, MLflow, consumer.py, uvicorn, streamlit (in that order)
 ```
 
 The README's usage section says `scripts/...` and `app/...`. Those paths are out of date; the code lives under `src/`.
@@ -51,7 +51,7 @@ The stages are separate scripts that hand data to each other through CSV files o
 2. **`src/features/driver_health_indicators.py`** runs two steps:
    - `generate_failure_labels`: `RUL = max(time_in_cycles per unit) - time_in_cycles`, plus `failure_binary = RUL <= 30`. Writes `data/cleaned/*_labeled.csv`. For the test set (truncated series), the driver passes `true_rul_path=data/processed/rul_FD001.csv` (written by `make_dataset.py` from `RUL_FD001.txt`), so each test unit's RUL is offset by its ground truth. The last-cycle RUL then equals RUL_FD001.
    - `engineer_health_indicators`: for a fixed list of 15 informative sensors, computes per-unit baselines (the mean of the first 5 cycles), `<sensor>_baseline`, `<sensor>_degraded` (below 75% of baseline), `<sensor>_rolling_mean`/`_rolling_std` (window 5) and `<sensor>_cycle_change`. Writes `data/features/*_features.csv`. The `health_score` feature was removed on purpose (it's commented out).
-3. **Training (`src/models/train_model*.py`)**: each script picks its feature columns with the same rule, `"sensor" in col or "health_score" in col`, excluding `failure_binary`. It runs a small random hyperparameter search with an 80/20 split **grouped by `unit`** (`GroupShuffleSplit`; a random row split leaks cycles of the same engine across the split), and logs MAE/RMSE/R2/Max Error, the model and a feature-importance CSV to MLflow at the hardcoded `http://localhost:5000`. The importance CSVs and feature-column JSONs land in the repo root as side effects. MLflow experiment names:
+3. **Training (`src/models/train_model*.py`)**: each script picks its feature columns with the same rule, `"sensor" in col or "health_score" in col`, excluding `failure_binary`. It runs a small random hyperparameter search with an 80/20 split **grouped by `unit`** (`GroupShuffleSplit`; a random row split leaks cycles of the same engine across the split), and logs MAE/RMSE/R2/Max Error, the model and a feature-importance CSV to MLflow at `http://127.0.0.1:5000` (override with `MLFLOW_TRACKING_URI`, e.g. to retrain against a throwaway server; don't use `localhost`, see Known state). The importance CSVs and feature-column JSONs land in the repo root as side effects. MLflow experiment names:
    - `FD001 RUL Hyperparam Tuning (unit split, seeded)` (sklearn RF, artifact `random_forest_model`)
    - `FD001 RUL XGBoost Hyperparam Tuning (unit split, seeded)` (artifact `xgboost_model`)
    - `FD001 RUL LightGBM Hyperparam Tuning (unit split, seeded)` (artifact `lightgbm_model`)
@@ -68,7 +68,9 @@ The stages are separate scripts that hand data to each other through CSV files o
    - Cycles 1-4 are held back and emitted together at cycle 5, since the batch baseline averages the first 5 cycles.
    - Predictions come from `predict_model.load_best_model()` and are published retained on `.../{unit}/prediction`. MQTT messages are acked only after the SQLite commit.
    - A new session wipes the other sessions' rows unless the producer ran with `--keep-history`.
-   - `stream_gateway.py` bridges predictions to `/ws/live` and is mounted on `app_api.py` with its lifespan. The Streamlit "Live" tab iframes the `/live` page, so updates arrive without reruns.
+   - `stream_gateway.py` bridges predictions to `/ws/live` and is mounted on `app_api.py` with its lifespan. The Streamlit "Live" tab iframes the `/live` page, so updates arrive without reruns. `GET /stream/status` reports the broker connection, the session, WebSocket clients and message/drop counters; the gateway also logs a stats line every 10 s while messages flow.
+   - Readiness: once its model is loaded and its subscriptions are acknowledged, the consumer publishes a retained `{"state": "online", "pid", "model_run_id", "ts"}` on `pm/fd001/consumer/status`. A last-will and a clean stop set it to `offline`. The producer refuses to start unless it is `online` (`--no-consumer-check` overrides). The consumer warns when telemetry arrives more than 5 s after it was sent.
+   - `run_all.py` starts broker → MLflow (only if it isn't already up) → consumer → gateway → dashboard, waiting on a real readiness check for each: MQTT CONNACK, `/health`, a consumer `online` status newer than its start, `/stream/status` showing the broker connected, and `/_stcore/health`. Children run in their own process groups. On Ctrl+C it sends each one Ctrl+Break in reverse order, then force-kills after 10 s. The dashboard is killed directly because it ignores Ctrl+Break for longer than that. A broker or MLflow server that was already running is left running. Children get `PYTHONUNBUFFERED=1`, since piped output is block-buffered, and `FOR_DISABLE_CONSOLE_CTRL_HANDLER=1`, since otherwise conda's Intel Fortran runtime aborts on Ctrl+Break before Python's cleanup runs.
    - `tests/test_stream_*.py` hold the parity tests against batch features and `rul_predictions.csv`. The real-model test skips if MLflow isn't running.
 
 The risk thresholds (30/100) and the failure threshold (30) are repeated in several files. Keep them consistent.
@@ -90,6 +92,7 @@ The risk thresholds (30/100) and the failure threshold (30) are repeated in seve
 - RUL targets are not capped (published FD001 results usually clip at about 125), so metrics aren't directly comparable with the literature.
 - The hyperparameter search samples with replacement, so an iteration can repeat an earlier parameter set (reproducibly).
 - `src/visualization/visualize.py` is empty.
-- Loading the best model through `runs:/` (`load_best_model`) takes about 4 minutes, while downloading the same file directly takes seconds. This affects batch inference, consumer startup and the real-model parity test.
+- MLflow 3 stores logged models under `mlartifacts/<exp>/models/<model_id>/`, not in the run's artifact folder. A `runs:/<run>/<name>` URI first requests the missing run artifact. The server answers 500, and the client's retry backoff adds about 4 minutes before it falls back. `load_best_model` therefore resolves the run's logged model and loads `models:/<model_id>` (about 3 s), keeping `runs:/` only as a fallback.
+- Use `127.0.0.1`, not `localhost`, for local services. The MLflow server listens on IPv4 only, and on this machine `localhost` tries IPv6 first and stalls 2 s per request.
 - The data CSVs differ from in-memory pipeline output by about 1e-12 (CSV float formatting). Compare streamed features with in-memory batch output for exact checks.
 - `app_api.py` imports the gateway relatively (`from .stream_gateway`), so run it as `src.app.app_api`, as documented above.

@@ -12,6 +12,11 @@ Every run is a new replay session, announced on the retained
 pm/fd001/control/session topic. The consumer wipes its SQLite state for
 earlier sessions unless the producer is run with --keep-history.
 
+The producer refuses to start unless the consumer's retained status on
+pm/fd001/consumer/status is "online" (override: --no-consumer-check), since
+a replay sent before the consumer is ready only reaches the dashboard once
+the consumer catches up.
+
 Usage (from the repo root, broker running via `docker compose up -d`):
     PYTHONPATH=src python src/streaming/producer.py --interval 0.2
 """
@@ -19,6 +24,7 @@ Usage (from the repo root, broker running via `docker compose up -d`):
 import argparse
 import json
 import logging
+import queue
 import random
 import time
 from datetime import datetime, timezone
@@ -121,6 +127,45 @@ def connect(client_id):
     return client
 
 
+def read_consumer_status(timeout=2.0):
+    """
+    The consumer's retained status ({"state", "pid", ...}), or None if the
+    broker is unreachable or holds none within `timeout` seconds.
+    """
+    received = queue.Queue()
+    # empty client id: the broker assigns one (needs a clean session)
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="")
+    client.on_connect = lambda c, u, f, rc, p: c.subscribe(
+        config.CONSUMER_STATUS_TOPIC, qos=1)
+    client.on_message = lambda c, u, msg: received.put(msg.payload)
+    try:
+        client.connect(config.BROKER_HOST, config.BROKER_PORT, keepalive=10)
+    except OSError:
+        return None
+    client.loop_start()
+    try:
+        return json.loads(received.get(timeout=timeout))
+    except (queue.Empty, ValueError):
+        return None
+    finally:
+        client.disconnect()
+        client.loop_stop()
+
+
+def check_consumer_online():
+    """Exits unless the consumer reports online, so a replay isn't lost."""
+    status = read_consumer_status()
+    if not status or status.get("state") != "online":
+        raise SystemExit(
+            f"The streaming consumer is not online (status: {status}). "
+            "Start it first (PYTHONPATH=src python src/streaming/consumer.py"
+            " or src/streaming/run_all.py) and wait for its online log "
+            "line, or pass --no-consumer-check to replay anyway: telemetry "
+            "then queues at the broker and predictions lag behind.")
+    log.info("Consumer online (pid %s, model run %s)", status.get("pid"),
+             status.get("model_run_id"))
+
+
 def publish_json(client, topic, payload, retain=False):
     return client.publish(topic, json.dumps(payload), qos=1, retain=retain)
 
@@ -165,11 +210,15 @@ def parse_args(argv=None):
     p.add_argument("--keep-history", action="store_true",
                    help="keep earlier sessions in the consumer's SQLite "
                         "state instead of wiping them")
+    p.add_argument("--no-consumer-check", action="store_true",
+                   help="start even if the consumer is not online")
     return p.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
+    if not args.no_consumer_check:
+        check_consumer_online()
     df = load_and_process_txt(Path(args.source))
     units = parse_units(args.units, df["unit"].unique())
     start_ticks = build_start_ticks(units, args.stagger, args.seed)

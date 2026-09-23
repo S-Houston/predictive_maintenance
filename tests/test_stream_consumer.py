@@ -7,7 +7,9 @@ or the data is unavailable).
 """
 
 import json
+import os
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -128,14 +130,17 @@ def test_evaluation_runs_once_when_all_engines_complete(
 
 
 class StubClient:
-    def __init__(self):
-        self.acks, self.published = [], []
+    def __init__(self, rc=0):
+        self.acks, self.published, self.payloads = [], [], []
+        self.rc = rc
 
     def ack(self, mid, qos):
         self.acks.append(mid)
 
     def publish(self, topic, payload, qos, retain):
         self.published.append((topic, retain))
+        self.payloads.append(payload)
+        return SimpleNamespace(rc=self.rc)
 
 
 def _mqtt_messages(pairs):
@@ -171,11 +176,74 @@ def test_failed_batch_is_not_acked(processor, store, monkeypatch):
     assert store.engine_states(SESSION) == {}  # rolled back; redelivered
 
 
+def test_failed_publishes_are_logged(processor, caplog):
+    mc = MqttConsumer(processor)
+    mc.client = StubClient(rc=4)  # MQTT_ERR_NO_CONN
+    msgs = _mqtt_messages([session_msg()] +
+                          telemetry(make_readings(1, range(1, 6))))
+    mc.process_batch(msgs)
+    assert "5 of 5 prediction publishes failed" in caplog.text
+
+
+# --- readiness status and lag ----------------------------------------------
+
+def test_status_payload_reports_state_pid_and_model():
+    payload = json.loads(consumer_mod.status_payload("online", "run-1"))
+    assert payload["state"] == "online"
+    assert payload["pid"] == os.getpid()
+    assert payload["model_run_id"] == "run-1"
+    assert datetime.fromisoformat(payload["ts"]).tzinfo is not None
+
+
+def test_last_will_reports_offline(processor):
+    mc = MqttConsumer(processor)
+    will = mc.client._will_topic.decode(), json.loads(mc.client._will_payload)
+    assert will[0] == "pm/fd001/consumer/status"
+    assert will[1]["state"] == "offline" and mc.client._will_retain
+
+
+def test_online_is_published_only_after_subscriptions_succeed(processor):
+    mc = MqttConsumer(processor)
+    stub = StubClient()
+    ok, refused = SimpleNamespace(is_failure=False), \
+        SimpleNamespace(is_failure=True)
+
+    mc._on_subscribe(stub, None, 1, [refused, ok], None)
+    assert stub.published == []
+    mc._on_subscribe(stub, None, 1, [ok, ok, ok], None)
+    assert stub.published == [("pm/fd001/consumer/status", True)]
+    assert json.loads(stub.payloads[0])["state"] == "online"
+
+
+def test_max_lag_uses_telemetry_timestamps_only():
+    now = datetime(2026, 1, 1, 0, 0, 10, tzinfo=timezone.utc)
+    msgs = [("pm/fd001/engine/1/telemetry",
+             {"ts": "2026-01-01T00:00:07.000+00:00"}),
+            ("pm/fd001/engine/2/telemetry",
+             {"ts": "2026-01-01T00:00:01.500+00:00"}),
+            ("pm/fd001/engine/2/status", {"ts": "2025-01-01T00:00:00+00:00"})]
+    assert consumer_mod.max_lag_seconds(msgs, now) == 8.5
+    assert consumer_mod.max_lag_seconds(msgs[2:], now) is None
+
+
+def test_lag_warning_fires_above_threshold_and_is_rate_limited(
+        processor, caplog):
+    mc = MqttConsumer(processor)
+    old = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    fresh = datetime.now(timezone.utc).isoformat()
+
+    mc._check_lag([("pm/fd001/engine/1/telemetry", {"ts": fresh})])
+    assert "behind the producer" not in caplog.text
+    mc._check_lag([("pm/fd001/engine/1/telemetry", {"ts": old})])
+    mc._check_lag([("pm/fd001/engine/1/telemetry", {"ts": old})])
+    assert caplog.text.count("behind the producer") == 1
+
+
 # --- full-fleet parity with the batch predictions (real model) ------------
 
 def _mlflow_up():
     try:
-        urllib.request.urlopen("http://localhost:5000/health", timeout=2)
+        urllib.request.urlopen("http://127.0.0.1:5000/health", timeout=2)
         return True
     except OSError:
         return False
@@ -184,7 +252,7 @@ def _mlflow_up():
 @pytest.fixture(scope="module")
 def best_model():
     if not _mlflow_up():
-        pytest.skip("MLflow server not running at http://localhost:5000")
+        pytest.skip("MLflow server not running at http://127.0.0.1:5000")
     from models.predict_model import feature_columns, load_best_model
     model, best_run = load_best_model()
     return model, best_run["run_id"], feature_columns()

@@ -72,6 +72,7 @@
   <span id="ws-badge" class="badge off"><span class="dot"></span><span>WebSocket</span></span>
   <span id="broker-badge" class="badge off"><span class="dot"></span><span>Broker</span></span>
   <span class="badge">Session <span id="session">none</span></span>
+  <span class="badge" title="Time of the last WebSocket message and how many have arrived">Last update <span id="last-update">never</span> · <span id="msg-count">0</span> msgs</span>
 </header>
 
 <section class="kpis">
@@ -108,6 +109,7 @@
 const RISK_ORDER = ["High", "Medium", "Low"];
 const engines = new Map();
 let session = null, selected = null, series = null, renderQueued = false;
+let msgCount = 0;
 
 const css = name => getComputedStyle(document.documentElement)
   .getPropertyValue(name).trim();
@@ -127,7 +129,13 @@ function resetSession(s) {
 }
 
 function handle(msg) {
+  msgCount++;
+  document.getElementById("msg-count").textContent = msgCount;
+  document.getElementById("last-update").textContent =
+    new Date().toLocaleTimeString();
   if (msg.type === "snapshot") {
+    console.info(`live: snapshot with ${msg.engines.length} engines, ` +
+                 `broker ${msg.broker_connected ? "up" : "down"}`);
     resetSession(msg.session);
     setBadge("broker-badge", msg.broker_connected);
     msg.engines.forEach(e => engines.set(e.unit, e));
@@ -235,9 +243,13 @@ function drawChart() {
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/live`);
-  ws.onopen = () => setBadge("ws-badge", true);
+  ws.onopen = () => {
+    console.info(`live: WebSocket open to ${ws.url}`);
+    setBadge("ws-badge", true);
+  };
   ws.onmessage = e => handle(JSON.parse(e.data));
-  ws.onclose = () => {
+  ws.onclose = e => {
+    console.info(`live: WebSocket closed (code ${e.code}); retrying in 2s`);
     setBadge("ws-badge", false);
     setTimeout(connect, 2000);
   };

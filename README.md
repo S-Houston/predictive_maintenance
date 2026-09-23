@@ -269,12 +269,17 @@ uvicorn app.app_api:app --reload
 streamlit run app/app_dashboard.py
 ```
 ### Real-time Streaming Simulation
-Replays the test set as live MQTT telemetry, one reading per engine per cycle. Features and RUL predictions are computed incrementally and pushed to the dashboard's **Live** tab over WebSocket. Start the MLflow server and the API first, then:
+Replays the test set as live MQTT telemetry, one reading per engine per cycle. Features and RUL predictions are computed incrementally and pushed to the dashboard's **Live** tab over WebSocket.
+
+One command starts the broker, MLflow (if it isn't already running), the consumer, the API gateway and the dashboard, in that order. It waits for each service to report ready before starting the next, and one Ctrl+C stops everything it started. Output is labelled per service and also written to `logs/<service>.log`:
 ```bash
-docker compose up -d                                             # Mosquitto broker
-PYTHONPATH=src python src/streaming/consumer.py                  # stateful features + inference
-PYTHONPATH=src python src/streaming/producer.py --interval 1.0   # replay (--keep-history, --stagger, --units)
+PYTHONPATH=src python src/streaming/run_all.py                   # needs Docker Desktop
 ```
+Then start a replay in a second terminal. The producer refuses to start until the consumer reports online:
+```bash
+PYTHONPATH=src python src/streaming/producer.py --interval 0.2   # replay (--keep-history, --stagger, --units)
+```
+To run the services by hand instead: `docker compose up -d`, the MLflow server, `PYTHONPATH=src python src/streaming/consumer.py` (wait for its "published online status" line), then `uvicorn src.app.app_api:app` and the dashboard. `http://127.0.0.1:8000/stream/status` shows whether the gateway is connected to the broker and how many messages it has received and forwarded.
 ### Dependencies
 
 Install dependencies from **requirements.txt**:

@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import pytest
 
+from streaming import producer
 from streaming.producer import build_start_ticks, iter_ticks, parse_units, \
     telemetry_payload
 
@@ -48,3 +49,35 @@ def test_payload_round_trips_values_exactly():
     payload = json.loads(json.dumps(telemetry_payload(record, "S")))
     assert {k: payload[k] for k in record} == record
     assert payload["session_id"] == "S" and payload["schema"] == 1
+
+
+# --- consumer readiness check ------------------------------------------------
+
+def test_replay_refuses_to_start_without_an_online_consumer(monkeypatch):
+    for status in (None, {"state": "offline", "pid": 1}):
+        monkeypatch.setattr(producer, "read_consumer_status",
+                            lambda timeout=2.0, s=status: s)
+        with pytest.raises(SystemExit, match="consumer is not online"):
+            producer.check_consumer_online()
+
+
+def test_online_consumer_passes_the_check(monkeypatch):
+    monkeypatch.setattr(producer, "read_consumer_status",
+                        lambda timeout=2.0: {"state": "online", "pid": 7})
+    producer.check_consumer_online()
+
+
+def test_no_consumer_check_flag_skips_the_check(monkeypatch):
+    class Stop(Exception):
+        pass
+
+    def refuse():
+        raise AssertionError("consumer check should be skipped")
+
+    def stop_after_check(path):
+        raise Stop
+
+    monkeypatch.setattr(producer, "check_consumer_online", refuse)
+    monkeypatch.setattr(producer, "load_and_process_txt", stop_after_check)
+    with pytest.raises(Stop):
+        producer.main(["--no-consumer-check"])

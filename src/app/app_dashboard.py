@@ -390,7 +390,7 @@ def main():
     FAILURE_THRESHOLD = 30
     HIGH_RISK_THRESHOLD = 30
     MEDIUM_RISK_THRESHOLD = 100
-    LIVE_URL = os.getenv("PM_LIVE_URL", "http://localhost:8000/live")
+    LIVE_URL = os.getenv("PM_LIVE_URL", "http://127.0.0.1:8000/live")
 
     RISK_COLOR_MAP = {"High": "#d9534f", "Medium": "#f0ad4e", "Low": "#5cb85c"}
     ALERT_EMOJIS = {"High": "🔴 High", "Medium": "🟠 Medium", "Low": "🟢 Low"}
