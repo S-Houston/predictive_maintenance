@@ -28,30 +28,42 @@ Project Structure
     ## Project Organisation
 
     predictive_maintenance
-    ├── LICENSE                           <- Project license
-    ├── Makefile                          <- Convenience commands for data processing and model training
+    ├── CLAUDE.md                          <- Guidance for Claude Code when working in this repo
+    ├── DECISIONS.md                       <- Decision log (one short entry per approved change)
+    ├── LICENSE                            <- Project license
+    ├── Makefile                           <- Convenience commands (data, lint, clean, backup-mlflow)
     ├── README.md                          <- Project overview and instructions
+    ├── docker-compose.yml                 <- Mosquitto MQTT broker for the streaming simulation
+    ├── docker
+    │   └── mosquitto
+    │       └── mosquitto.conf             <- Broker configuration
     ├── data
     │   ├── cleaned                        <- Cleaned & labeled datasets ready for feature engineering
     │   ├── external                       <- Any external/third-party data
     │   ├── features                       <- Engineered feature CSVs for training/testing
     │   ├── interim                        <- Intermediate processing outputs
     │   ├── processed                      <- Final canonical datasets (train/test/RUL/predictions)
-    │   └── raw                            <- Original unprocessed NASA CMAPSS data + documentation
+    │   ├── raw                            <- Original unprocessed NASA CMAPSS data + documentation
+    │   └── stream                         <- SQLite state for the streaming consumer (created at runtime)
     ├── docs                               <- Sphinx documentation source
     ├── models                             <- Serialized/trained models (e.g., Random Forest, LightGBM)
     ├── notebooks                          <- Jupyter notebooks (EDA, feature engineering, prototyping)
-    ├── references                          <- Reference materials (PDFs, manuals, notes)
+    ├── references                         <- Reference materials (PDFs, manuals, notes)
     ├── reports
     │   ├── EDA_report.html                <- Generated exploratory analysis report
     │   └── figures                        <- Figures for reports/dashboards
+    ├── pytest.ini                         <- pytest configuration (puts src on the path)
     ├── requirements.txt                   <- Python dependencies
     ├── setup.py                           <- Project setup for pip installable module
     ├── src                                <- Core project code
     │   ├── __init__.py
+    │   ├── backup_mlflow.py               <- Snapshots mlflow.db into backups/ with a timestamped name
     │   ├── app
     │   │   ├── app_api.py                 <- FastAPI endpoint for predictions
-    │   │   └── app_dashboard.py           <- Streamlit dashboard logic
+    │   │   ├── app_dashboard.py           <- Streamlit dashboard logic
+    │   │   ├── stream_gateway.py          <- MQTT-to-WebSocket bridge mounted on the API
+    │   │   └── static
+    │   │       └── live.html              <- Live view page served at /live
     │   ├── data
     │   │   └── make_dataset.py            <- Scripts for data ingestion and cleaning
     │   ├── features
@@ -64,13 +76,28 @@ Project Structure
     │   │   ├── train_model_lightgbm.py
     │   │   ├── train_model_xgb.py
     │   │   └── log_top_model.py
+    │   ├── streaming                      <- Real-time streaming simulation
+    │   │   ├── config.py                  <- Broker, topic and path settings
+    │   │   ├── producer.py                <- Replays the test set as MQTT telemetry
+    │   │   ├── consumer.py                <- Computes features and predictions per micro-batch
+    │   │   ├── state_store.py             <- SQLite store for streamed readings
+    │   │   ├── stream_features.py         <- Reuses the batch feature engineering on each engine's history
+    │   │   └── run_all.py                 <- Starts and stops all streaming services with one command
     │   └── visualization
     │       └── visualize.py
     ├── tests                              <- Unit tests with pytest
+    │   ├── conftest.py
     │   ├── test_generate_health_indicators.py
-    │   └── test_generate_labels.py
+    │   ├── test_generate_labels.py
+    │   ├── test_reproducibility.py
+    │   ├── test_run_all.py
+    │   ├── test_stream_consumer.py
+    │   ├── test_stream_features.py
+    │   ├── test_stream_gateway.py
+    │   ├── test_stream_producer.py
+    │   └── test_stream_state_store.py
     ├── test_environment.py                <- Script to validate Python environment setup
-    └── tox.ini                             <- Testing automation configuration
+    └── tox.ini                            <- Testing automation configuration
 
 
 --------
@@ -195,7 +222,7 @@ Visualizes comparison using Seaborn barplots.
 --------
 
 ## API
-**app/app_api.py**
+**src/app/app_api.py**
 
 FastAPI service exposing endpoints:
 
@@ -212,7 +239,7 @@ Swagger UI available at **http://127.0.0.1:8000/docs**.
 --------
 
 ## Streamlit Dashboard
-**app/app_dashboard.py**
+**src/app/app_dashboard.py**
 
 Interactive dashboard displaying:
 
@@ -232,6 +259,10 @@ Tabs include:
 
 - RUL Predictions
 
+- Commercial Analysis
+
+- Live (real-time streaming predictions; see Real-time Streaming Simulation below)
+
 Cached loading for faster performance using **@st.cache_data**.
 
 --------
@@ -248,25 +279,26 @@ Cached loading for faster performance using **@st.cache_data**.
 
 ## Usage
 ### Run MLflow server
-```python
+```bash
 mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5000
 ```
 ### Train Models
-```python
-python scripts/train_model_lightgbm.py
-python scripts/train_model_xgb.py
+```bash
+python src/models/train_model.py
+python src/models/train_model_lightgbm.py
+python src/models/train_model_xgb.py
 ```
 ### Run Predictions
-```python
-python scripts/predict_model.py
+```bash
+python src/models/predict_model.py
 ```
 ### Start API
-```python
-uvicorn app.app_api:app --reload
+```bash
+uvicorn src.app.app_api:app --reload
 ```
 ### Launch Dashboard
-```python
-streamlit run app/app_dashboard.py
+```bash
+streamlit run src/app/app_dashboard.py
 ```
 ### Real-time Streaming Simulation
 Replays the test set as live MQTT telemetry, one reading per engine per cycle. Features and RUL predictions are computed incrementally and pushed to the dashboard's **Live** tab over WebSocket.
@@ -283,7 +315,7 @@ To run the services by hand instead: `docker compose up -d`, the MLflow server, 
 ### Dependencies
 
 Install dependencies from **requirements.txt**:
-```python
+```bash
 pip install -r requirements.txt
 ```
 Key packages:
