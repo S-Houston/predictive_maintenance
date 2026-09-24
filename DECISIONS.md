@@ -127,3 +127,9 @@ Significant project decisions, oldest first. Add new entries at the bottom, in t
 - Alternatives considered: compose services for the consumer, gateway and dashboard; per-service log files only; interleaved console output only.
 - Reasoning: those services run in the host conda env against the host-local `mlflow.db`/`mlartifacts`, and `requirements.txt` is conda `file://` paths that won't install in an image. The labelled console is for watching a run live, and the per-service files are for diagnosing one hop afterwards.
 - Commit: af91d77
+
+## [2026-09-24] Verify restart resilience against the state store, not the logs
+- Choice: accept the at-least-once design (ack after commit, idempotent inserts) as verified by a real crash. In session `20260924T080338Z` the consumer was down for 58 s mid-replay, with 94 engines active across the restart. Checked directly in `stream_state.db`: no gaps in any engine's readings (cycles 1 to max, matching `test_FD001.txt`, 13,096 rows), no duplicate prediction keys, and all 100 engines `complete` with prediction count equal to reading count. Each spanning engine's first cycle after the restart is its last cycle before it plus 1.
+- Alternatives considered: trusting the consumer log's per-batch counts, which showed fewer predictions than messages (e.g. 661 -> 658).
+- Reasoning: the log gap was first suspected to be the warm-up hold, but that only delays predictions and nets to zero. After the restart, 8,706 messages yielded 8,511 new readings and 8,511 predictions. The 195 extra messages were copies of already-stored readings, which `INSERT OR IGNORE` dropped. The consumer reconnected with `session present: True`, so they were QoS 1 redeliveries of unacknowledged messages. No data was lost.
+- Commit: none (verification only; no code changed)
