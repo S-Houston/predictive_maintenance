@@ -94,6 +94,8 @@ data/*
 
 # MLflow experiment runs and models
 mlruns/
+mlartifacts/
+backups/
 
 # Local model artifacts
 models/

@@ -21,6 +21,8 @@ Date: 20-08-2025
 """
 
 # Import necessary libraries
+import os
+
 import mlflow
 import mlflow.lightgbm
 import mlflow.xgboost
@@ -32,14 +34,19 @@ from mlflow.tracking import MlflowClient
 from mlflow import log_artifact, log_metric, start_run
 
 # Config
-mlflow.set_tracking_uri("http://localhost:5000")
+mlflow.set_tracking_uri(
+    os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000"))
 experiment_name = "FD001 RUL Inference"
 metric_to_optimise = "RMSE"
 
+# Only experiments with a unit-level (grouped) split and a seeded hyperparameter
+# search, so the selected model can be reproduced by retraining. Earlier
+# experiments used a leaky random row split (no suffix) or an unseeded search
+# ("(unit split)").
 training_experiments = [
-    "FD001 RUL Hyperparam Tuning",             
-    "FD001 RUL XGBoost Hyperparam Tuning",
-    "FD001 RUL LightGBM Hyperparam Tuning"
+    "FD001 RUL Hyperparam Tuning (unit split, seeded)",
+    "FD001 RUL XGBoost Hyperparam Tuning (unit split, seeded)",
+    "FD001 RUL LightGBM Hyperparam Tuning (unit split, seeded)"
 ]
 
 # Create or get the experiment
@@ -79,8 +86,31 @@ def classify_risk(rul: float) -> str:
         return "Medium"
     return "Low"
 
-def main():
-    best_run = get_best_training_run()
+def evaluate_against_truth(rul_df: pd.DataFrame, labeled_df: pd.DataFrame) -> dict:
+    """
+    Scores predictions at each unit's last observed cycle against the true RUL
+    (the standard CMAPSS test evaluation). labeled_df must carry the true RUL
+    per row, i.e. test labels generated with the RUL_FD001 offset.
+    """
+    truth = labeled_df[["unit", "time_in_cycles", "RUL"]].rename(columns={"RUL": "RUL_true"})
+    merged = rul_df.merge(truth, on=["unit", "time_in_cycles"])
+    last = merged.sort_values("time_in_cycles").groupby("unit").tail(1)
+    errors = last["RUL"] - last["RUL_true"]
+    ss_res = (errors ** 2).sum()
+    ss_tot = ((last["RUL_true"] - last["RUL_true"].mean()) ** 2).sum()
+    return {
+        "test_MAE": float(errors.abs().mean()),
+        "test_RMSE": float(np.sqrt((errors ** 2).mean())),
+        "test_R2": float(1 - ss_res / ss_tot),
+        "test_units": int(len(last)),
+    }
+
+def load_best_model(metric=metric_to_optimise):
+    """
+    Loads the best model across the training experiments.
+    Returns (model, best_run) where best_run is get_best_training_run()'s dict.
+    """
+    best_run = get_best_training_run(metric)
     print(f"Best overall run: {best_run}")
 
     # Determine model type from experiment name (optional, for loading)
@@ -93,17 +123,40 @@ def main():
     else:
         # Default to sklearn (assumed RandomForest or baseline)
         model_loader = mlflow.sklearn.load_model
-        model_name = "model"
+        model_name = "random_forest_model"  # artifact name used in train_model.py
 
-    model_uri = f"runs:/{best_run['run_id']}/{model_name}"
+    model_uri = model_uri_for_run(best_run["run_id"], model_name)
     print(f"Loading model from: {model_uri}")
 
-    model = model_loader(model_uri)
+    return model_loader(model_uri), best_run
 
-    # Load train data to get features
-    train_path = Path("data/features/train_FD001_features.csv")
-    train_df = pd.read_csv(train_path)
-    feature_cols = [col for col in train_df.columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
+def model_uri_for_run(run_id, model_name):
+    """
+    URI of the model logged by a run. MLflow 3 stores logged models outside
+    the run's artifact folder, so a runs:/ URI first requests a missing run
+    artifact; the server answers 500 and the client's retry backoff adds
+    about 4 minutes before it falls back to the logged model. Loading by
+    models:/<model_id> skips that. runs:/ remains the fallback for runs
+    without a logged model record.
+    """
+    run = mlflow.get_run(run_id)
+    models = mlflow.search_logged_models(
+        experiment_ids=[run.info.experiment_id],
+        filter_string=f"source_run_id = '{run_id}'",
+        output_format="list")
+    for model in models:
+        if model.name == model_name:
+            return f"models:/{model.model_id}"
+    return f"runs:/{run_id}/{model_name}"
+
+def feature_columns(train_path=Path("data/features/train_FD001_features.csv")):
+    """Model input columns, in training order, from the train features header."""
+    columns = pd.read_csv(train_path, nrows=0).columns
+    return [col for col in columns if ("sensor" in col or "health_score" in col) and col != "failure_binary"]
+
+def main():
+    model, best_run = load_best_model()
+    feature_cols = feature_columns()
 
     # Load test data
     test_path = Path("data/features/test_FD001_features.csv")
@@ -114,9 +167,15 @@ def main():
     rul_preds = model.predict(X_test)
     rul_df = pd.DataFrame({
         "unit": test_df["unit"],
+        "time_in_cycles": test_df["time_in_cycles"],
         "RUL": np.round(rul_preds, 2)
     })
     rul_df["risk_level"] = rul_df["RUL"].apply(classify_risk)
+
+    # Evaluate against ground truth (last observed cycle per unit)
+    labeled_path = Path("data/cleaned/test_FD001_labeled.csv")
+    test_metrics = evaluate_against_truth(rul_df, pd.read_csv(labeled_path))
+    print(f"Test-set evaluation (last cycle vs RUL_FD001): {test_metrics}")
 
     # Save predictions
     output_path = Path("data/processed/rul_predictions.csv")
@@ -132,6 +191,8 @@ def main():
         # Optionally log aggregated metrics
         mlflow.log_metric("mean_RUL", rul_df["RUL"].mean())
         mlflow.log_metric("high_risk_count", (rul_df["risk_level"] == "High").sum())
+        for name, value in test_metrics.items():
+            mlflow.log_metric(name, value)
         # Log predictions CSV as artifact
         mlflow.log_artifact(str(output_path))
         print(f"Inference logged in MLflow under run ID: {run.info.run_id}")

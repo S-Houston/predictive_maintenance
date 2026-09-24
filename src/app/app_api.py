@@ -24,12 +24,19 @@ import pandas as pd
 from pathlib import Path
 from typing import List
 
+from .stream_gateway import lifespan as stream_lifespan
+from .stream_gateway import router as stream_router
+
 # Initialise FastAPI application
 app = FastAPI(
     title="Predictive Maintenance API",
     description="API for engine health monitoring and RUL predictions",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=stream_lifespan
 )
+
+# Live streaming routes (/live, /ws/live, /stream/*); see stream_gateway.py
+app.include_router(stream_router)
 
 # Configuration paths and constants
 FEATURES_PATH = Path("data/features/train_FD001_features.csv")
@@ -47,7 +54,7 @@ class PredictionResponse(BaseModel):
 # Helper Functions
 def load_predictions(path: Path) -> pd.DataFrame:
     """
-    Loads predictions from CSV and returns a DataFrame.
+    Loads predictions from CSV and returns one row per unit (latest cycle).
     Uses risk_level from CSV if available, otherwise computes it.
     """
     if not path.exists():
@@ -70,7 +77,12 @@ def load_predictions(path: Path) -> pd.DataFrame:
                 return "Medium"
             return "Low"
         df["risk_level"] = df["RUL"].apply(classify_risk)
-    
+
+    # Predictions cover every test cycle; serve each unit's latest (current) prediction
+    if "time_in_cycles" in df.columns:
+        df = df.sort_values(["unit", "time_in_cycles"])
+    df = df.groupby("unit").tail(1).reset_index(drop=True)
+
     return df
 
 # API Routes

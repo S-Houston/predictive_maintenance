@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Fleet RUL</title>
+<script src="/live/plotly.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f7f9; --text: #1f2328; --muted: #656d76;
+    --border: #d8dee4; --accent: #2563eb;
+    --high: #d9534f; --medium: #f0ad4e; --low: #5cb85c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1117; --panel: #161b22; --text: #e6edf3; --muted: #8d96a0;
+      --border: #30363d; --accent: #58a6ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  h1 { font-size: 18px; margin: 0 auto 0 0; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px;
+    color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .on .dot { background: var(--low); }
+  .off .dot { background: var(--high); }
+  .kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px; margin: 16px 0;
+  }
+  .kpi {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .kpi .label { color: var(--muted); font-size: 12px; }
+  .kpi .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; min-width: 0;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 8px; }
+  .table-wrap { max-height: 560px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted);
+       font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  tbody tr.selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .risk { font-weight: 600; }
+  .risk.High { color: var(--high); } .risk.Medium { color: var(--medium); }
+  .risk.Low { color: var(--low); }
+  .muted { color: var(--muted); }
+  #chart { height: 420px; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Live fleet RUL</h1>
+  <span id="ws-badge" class="badge off"><span class="dot"></span><span>WebSocket</span></span>
+  <span id="broker-badge" class="badge off"><span class="dot"></span><span>Broker</span></span>
+  <span class="badge">Session <span id="session">none</span></span>
+  <span class="badge" title="Time of the last WebSocket message and how many have arrived">Last update <span id="last-update">never</span> · <span id="msg-count">0</span> msgs</span>
+</header>
+
+<section class="kpis">
+  <div class="kpi"><div class="label">Engines reporting</div><div class="value" id="k-total">0</div></div>
+  <div class="kpi"><div class="label">High risk</div><div class="value risk High" id="k-High">0</div></div>
+  <div class="kpi"><div class="label">Medium risk</div><div class="value risk Medium" id="k-Medium">0</div></div>
+  <div class="kpi"><div class="label">Low risk</div><div class="value risk Low" id="k-Low">0</div></div>
+  <div class="kpi"><div class="label">Replay complete</div><div class="value" id="k-complete">0</div></div>
+</section>
+
+<section class="grid">
+  <div class="panel">
+    <h2>Fleet, lowest predicted RUL first</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Unit</th><th class="num">Cycle</th><th class="num">RUL</th>
+          <th>Risk</th><th>Status</th>
+        </tr></thead>
+        <tbody id="fleet"></tbody>
+      </table>
+      <div id="fleet-empty" class="empty">
+        Waiting for predictions. Engines appear after their first 5 cycles.
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2 id="chart-title">Select an engine</h2>
+    <div id="chart"></div>
+  </div>
+</section>
+
+<script>
+const RISK_ORDER = ["High", "Medium", "Low"];
+const engines = new Map();
+let session = null, selected = null, series = null, renderQueued = false;
+let msgCount = 0;
+
+const css = name => getComputedStyle(document.documentElement)
+  .getPropertyValue(name).trim();
+
+function setBadge(id, on) {
+  document.getElementById(id).className = "badge " + (on ? "on" : "off");
+}
+
+function resetSession(s) {
+  session = s;
+  engines.clear();
+  selected = null;
+  series = null;
+  document.getElementById("session").textContent =
+    s && s.session_id ? s.session_id : "none";
+  drawChart();
+}
+
+function handle(msg) {
+  msgCount++;
+  document.getElementById("msg-count").textContent = msgCount;
+  document.getElementById("last-update").textContent =
+    new Date().toLocaleTimeString();
+  if (msg.type === "snapshot") {
+    console.info(`live: snapshot with ${msg.engines.length} engines, ` +
+                 `broker ${msg.broker_connected ? "up" : "down"}`);
+    resetSession(msg.session);
+    setBadge("broker-badge", msg.broker_connected);
+    msg.engines.forEach(e => engines.set(e.unit, e));
+  } else if (msg.type === "events") {
+    msg.events.forEach(applyEvent);
+  }
+  queueRender();
+}
+
+function applyEvent(ev) {
+  if (ev.type === "session") {
+    resetSession(ev.session);
+  } else if (ev.type === "broker") {
+    setBadge("broker-badge", ev.connected);
+  } else if (ev.type === "prediction") {
+    engines.set(ev.unit, ev);
+    if (ev.unit === selected && series) {
+      series.x.push(ev.time_in_cycles);
+      series.y.push(ev.rul);
+      series.risk.push(ev.risk_level);
+      drawChart();
+    }
+  } else if (ev.type === "status") {
+    const e = engines.get(ev.unit);
+    if (e) e.status = ev.state;
+  }
+}
+
+function queueRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; renderFleet(); });
+}
+
+function renderFleet() {
+  const rows = [...engines.values()].sort((a, b) => a.rul - b.rul);
+  const counts = { High: 0, Medium: 0, Low: 0 };
+  let complete = 0;
+  const body = document.getElementById("fleet");
+  body.replaceChildren(...rows.map(e => {
+    counts[e.risk_level] = (counts[e.risk_level] || 0) + 1;
+    if (e.status === "complete") complete++;
+    const tr = document.createElement("tr");
+    if (e.unit === selected) tr.className = "selected";
+    tr.innerHTML =
+      `<td>${e.unit}</td><td class="num">${e.time_in_cycles}</td>` +
+      `<td class="num">${e.rul.toFixed(1)}</td>` +
+      `<td class="risk ${e.risk_level}">${e.risk_level}</td>` +
+      `<td class="muted">${e.status}</td>`;
+    tr.onclick = () => select(e.unit);
+    return tr;
+  }));
+  document.getElementById("fleet-empty").style.display = rows.length ? "none" : "";
+  document.getElementById("k-total").textContent = rows.length;
+  document.getElementById("k-complete").textContent = complete;
+  RISK_ORDER.forEach(r => document.getElementById("k-" + r).textContent = counts[r]);
+  if (selected === null && rows.length) select(rows[0].unit);
+}
+
+async function select(unit) {
+  selected = unit;
+  series = { x: [], y: [], risk: [] };
+  document.getElementById("chart-title").textContent =
+    `Engine ${unit}: predicted RUL by cycle`;
+  try {
+    const res = await fetch(`/stream/history/${unit}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (unit !== selected) return;
+      // Merge with live points that arrived while history was loading
+      const points = new Map(data.history.map(
+        h => [h.time_in_cycles, [h.rul, h.risk_level]]));
+      series.x.forEach((c, i) => points.set(c, [series.y[i], series.risk[i]]));
+      const cycles = [...points.keys()].sort((a, b) => a - b);
+      series = {
+        x: cycles,
+        y: cycles.map(c => points.get(c)[0]),
+        risk: cycles.map(c => points.get(c)[1]),
+      };
+    }
+  } catch (err) { /* history is optional; live points still arrive */ }
+  drawChart();
+  queueRender();
+}
+
+function drawChart() {
+  const text = css("--text"), grid = css("--border");
+  const trace = series ? [{
+    x: series.x, y: series.y, mode: "lines+markers", name: "Predicted RUL",
+    line: { color: css("--accent"), width: 2 },
+    marker: { size: 5, color: series.risk.map(r => css("--" + r.toLowerCase())) },
+    hovertemplate: "cycle %{x}<br>RUL %{y:.1f}<extra></extra>",
+  }] : [];
+  Plotly.react("chart", trace, {
+    margin: { l: 48, r: 12, t: 8, b: 40 },
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: text, size: 12 },
+    xaxis: { title: { text: "Cycle" }, gridcolor: grid, zeroline: false },
+    yaxis: { title: { text: "Predicted RUL (cycles)" }, gridcolor: grid,
+             rangemode: "tozero" },
+    showlegend: false,
+  }, { displayModeBar: false, responsive: true });
+}
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/live`);
+  ws.onopen = () => {
+    console.info(`live: WebSocket open to ${ws.url}`);
+    setBadge("ws-badge", true);
+  };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onclose = e => {
+    console.info(`live: WebSocket closed (code ${e.code}); retrying in 2s`);
+    setBadge("ws-badge", false);
+    setTimeout(connect, 2000);
+  };
+}
+
+drawChart();
+connect();
+</script>
+</body>
+</html>

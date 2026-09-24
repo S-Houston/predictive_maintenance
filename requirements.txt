@@ -112,6 +112,7 @@ opentelemetry-sdk==1.35.0
 opentelemetry-semantic-conventions==0.56b0
 overrides @ file:///home/conda/feedstock_root/build_artifacts/overrides_1734587627321/work
 packaging @ file:///C:/b/abs_3by6s2fa66/croot/packaging_1734472138782/work
+paho-mqtt==2.1.0
 pandas @ file:///C:/b/abs_e18w9ay4we/croot/pandas_1732735115740/work/dist/pandas-2.2.3-cp311-cp311-win_amd64.whl#sha256=3a9ed5b5006a5fad640788cd8385485f98b18ac6ff9294cb25b18f3931fed352
 pandocfilters @ file:///home/conda/feedstock_root/build_artifacts/pandocfilters_1631603243851/work
 parso @ file:///home/conda/feedstock_root/build_artifacts/parso_1733271261340/work
