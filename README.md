@@ -1,24 +1,20 @@
 # Predictive Maintenance with NASA CMAPSS Dataset
 
 ## Project Overview
-This project develops a predictive maintenance solution for jet engines using the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) dataset.  
-The objective is to predict the **Remaining Useful Life (RUL)** of engines from multivariate sensor data and demonstrate a full **end-to-end ML workflow**.
+This project explores how an RUL predictive-maintenance model can be taken from offline experimentation through reproducible evaluation, inference, API serving and simulated real-time telemetry.
 
-This project is designed to be portfolio-ready and highlight skills across:
-- Exploratory Data Analysis (EDA) and feature engineering  
-- ML model development (regression + classification)  
-- Reproducibility, versioning, and modular code organisation  
-- Experiment tracking and reporting  
-- Deployment-ready architecture (FastAPI, testing, CI/CD ready)
+It uses the NASA CMAPSS (Commercial Modular Aero-Propulsion System Simulation) **FD001** dataset and predicts the **Remaining Useful Life (RUL)** of jet engines from multivariate sensor data.
 
 ---
 
 ## Goals
-- Understand engine degradation through sensor behavior analysis  
-- Engineer labels for **RUL prediction** and **failure classification**  
-- Benchmark baseline models and compare with advanced ML methods  
-- Build a clean, reproducible pipeline suitable for deployment  
-- Demonstrate good MLOps practices (experiment tracking, modular repo, testing)
+- Predict RUL for previously unseen engines using leakage-safe evaluation
+- Establish reproducible model selection and experiment tracking
+- Correctly evaluate truncated CMAPSS test trajectories against supplied RUL ground truth
+- Serve predictions through an API and dashboard
+- Simulate real-time telemetry using MQTT
+- Maintain persistent streaming state and recover safely from consumer restarts
+- Verify parity between batch and streaming feature calculations
 
 ---
 
@@ -104,18 +100,25 @@ Project Structure
 ## Workflow Overview
 ```mermaid
 flowchart TD
-    A[Raw Engine Sensor Data] --> B[Feature Engineering]
-    B --> C[Train LightGBM Model]
-    B --> D[Train XGBoost Model]
-    C --> E[MLflow Experiment Logging]
-    D --> E
-    E --> F[Select Best Model]
-    F --> G[Predict RUL]
-    G --> H[Classify Risk]
-    H --> I[Save Predictions CSV]
-    I --> J[Serve via FastAPI API]
-    J --> K[Streamlit Dashboard Visualization]
+    A[CMAPSS FD001 data] --> B["Feature Engineering<br/>engineer_health_indicators()"]
+    B --> C["Model Training<br/>RF / XGBoost / LightGBM"]
+    C --> D[MLflow Experiment Tracking]
+    D --> E["Selected Model<br/>lowest validation RMSE"]
+
+    E --> I["Batch Inference<br/>predict_model.py"]
+    I --> J[("rul_predictions.csv")]
+    J -->|direct file read| K["Dashboard<br/>Summary tab"]
+
+    A --> F["MQTT Telemetry Simulation<br/>producer replays the test set"]
+    F --> G[Stream Consumer]
+    G --> H[("Persistent State<br/>SQLite")]
+    H --> L["engineer_health_indicators()<br/>over each engine's full history<br/>(same function as batch path — reused, not reimplemented)"]
+    L --> E
+    E --> M["Streaming RUL Predictions<br/>published over MQTT"]
+    M --> N[FastAPI Gateway]
+    N -->|WebSocket| O["Dashboard<br/>Live tab"]
 ```
+
 --------
 
 ## MLflow Experiment Tracking
@@ -267,6 +270,22 @@ Cached loading for faster performance using **@st.cache_data**.
 
 --------
 
+## Commercial Analysis
+
+The dashboard's **Commercial Analysis** tab shows how the model's risk output could be presented to a business audience. It takes each test engine's latest prediction and assigns it a cost based only on its risk level:
+
+| Risk Level | Assumed scenario | Estimated cost |
+|------------|------------------|----------------|
+| High       | Unplanned failure: 48 h downtime × £5,000/h | £240,000 |
+| Medium     | Proactive maintenance: 8 h downtime × £5,000/h + £20,000 fixed cost | £60,000 |
+| Low        | No action | £0 |
+
+The tab shows a per-engine table sorted by cost, the total across all engines, the total by risk level, and a per-engine cost ranking chart. The Unit Analysis tab uses the same assumptions to recommend an intervention for the selected engines and estimate the saving from proactive maintenance.
+
+**These figures are illustrative, for demonstration only.** The hourly rate, downtime hours and fixed cost are placeholder assumptions hardcoded at the top of `src/app/app_dashboard.py`. They aren't derived from any real operator's or industry cost data, and the tab isn't a cost model. It only shows how technical risk output could be framed in financial terms.
+
+--------
+
 ## Risk Classification
 
 | Risk Level | RUL (cycles) |
@@ -301,7 +320,7 @@ uvicorn src.app.app_api:app --reload
 streamlit run src/app/app_dashboard.py
 ```
 ### Real-time Streaming Simulation
-Replays the test set as live MQTT telemetry, one reading per engine per cycle. Features and RUL predictions are computed incrementally and pushed to the dashboard's **Live** tab over WebSocket.
+Replays the test set as live MQTT telemetry, one reading per engine per cycle. The consumer stores each reading in SQLite. On every micro-batch it recomputes features for each engine that received new readings by calling the same batch `engineer_health_indicators()` over that engine's full history so far. This is a full recompute, not a separate incremental or rolling calculation, and it's what makes the streamed features bitwise identical to batch output (checked by `tests/test_stream_features.py`). An engine's first four cycles are held back and emitted together at cycle 5, because the baseline averages the first five cycles. Predictions from the selected model are pushed to the dashboard's **Live** tab over WebSocket. Because state lives in SQLite and messages are acknowledged only after it's committed, a consumer restart mid-replay loses and duplicates nothing.
 
 One command starts the broker, MLflow (if it isn't already running), the consumer, the API gateway and the dashboard, in that order. It waits for each service to report ready before starting the next, and one Ctrl+C stops everything it started. Output is labelled per service and also written to `logs/<service>.log`:
 ```bash
